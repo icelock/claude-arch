@@ -1,186 +1,216 @@
 # CLAUDE.md
 
-## 应用架构：分层架构
+## 架构声明
 
-本项目采用分层架构，依赖只能自上而下单向流动。层级和包名根据业务需要定义，但必须遵守下面的依赖规则。新增或修改代码前，先确认代码属于哪一层。
-
-架构风格是**经典分层**：层是封闭的，不能跳层；common 是各层共用的公共层；`cmd` 是组装根。它不是 Clean 架构或六边形架构，service 直接 import infra 的具体包。未经用户同意，不要改成依赖倒置的写法（由 service 定义端口接口、infra 实现）。
-
-### 写代码的强制要求
-
-本节和下面的所有规则对人和 AI 同样适用，不是建议。
-
-1. **先定位，再写代码**：动手前确定代码属于哪一层、放在哪个包。包路径必须落在「本项目的层级」表的某个模式下。落不进去时停下来问用户，确认后按「新增层」处理：同步更新层级表、依赖图和 `internal/archtest/arch_test.go` 中的 `architecture`，再写代码。
-2. **不许通过改规则让检查通过**：archtest 失败，说明代码放错了层或依赖方向错了，应该改代码。下面这些做法一律禁止：
-   - 扩大 `MayOnlyAccess`，或删减 `DeniedImports`、`StdlibOnly`；
-   - 加 `Ignored`，或调整包路径模式；
-   - 修改 `engine_test.go` 的检查逻辑来放行。
-
-   确实需要调整规则时，先向用户说明原因，用户同意后再改，并同步更新本文件。
-3. **不许绕过规则**，包括：
-   - 用全局变量、`init()`、反射或 `any` 传递上层对象；
-   - 只为了让上下层都能引用，就把类型挪进 common；
-   - 把上层逻辑复制到下层。
-4. **archtest 查不到的规则同样必须遵守**，写代码时逐条自查：
-   - 跨层调用的第一个参数是 `context.Context`，下层不得自行创建 `context.Background()`/`context.TODO()`；
-   - 依赖只通过构造函数注入，不用包级可变状态，也不在 `init()` 中装配；
-   - entry 不直接使用数据库、Redis、MQ、WebSocket 等 SDK（`net/http` 服务端只用于 HTTP 入口）；
-   - infra 不做业务判断；数据库模型、交易所原始报文、SDK 类型不离开 infra；
-   - 回调和事件的签名中不出现上层类型；
-   - 错误在本层转换，第三方错误不暴露给上层；
-   - entry 子包之间、infra 子包之间不互相依赖。
-5. **完成前必须验证**：运行 `go vet ./...`、`go test ./internal/archtest`、`go test -race ./...`，如实报告结果。只要 archtest 没通过，就不能说任务已完成。
-
-### 层的角色
-
-每一层都必须归入以下某种角色。可以按业务拆出更多层或子包，但不能出现不属于任何角色的层。
-
-| 角色 | 职责 | 典型内容 |
-|---|---|---|
-| 入口 | 接收外部触发，转换后调用业务层 | HTTP/gRPC handler、WS 推送接收、MQ 消费、定时任务、CLI |
-| 业务 | 业务规则与流程编排 | 计算、决策、状态流转、结果处理 |
-| 基础设施 | 技术细节 | 交易所/第三方客户端、数据库、Redis、Kafka、文件、缓存加载 |
-| 公共 | 各层共用的类型与工具，不依赖任何层 | 通用类型、枚举常量、错误基础定义、工具函数 |
-| 组装 | 创建对象、注入依赖、启动和关闭 goroutine，只做接线 | `cmd/<app>/main.go`、`internal/bootstrap` |
-
-### 本项目的层级
-
-> 本表与 `internal/archtest/arch_test.go` 中的 `architecture` 一一对应，两边必须同时修改。在已有层下新增子包（如 `internal/infra/xxx`）不需要改。
-
-| 层 | 包路径模式 | 角色 | 可以依赖的层 | 外部包限制（archtest 检查） |
-|---|---|---|---|---|
-| cmd | `cmd/...` | 组装 | 所有层 | 无 |
-| entry | `internal/entry/...` | 入口 | service、common | 无（SDK 限制见「写代码的强制要求」第 4 条，需人工遵守） |
-| service | `internal/service/...` | 业务 | infra、common | 禁止 `net/http`、`database/sql`、`github.com/gorilla/websocket`、`gorm.io`、`github.com/redis`、`github.com/IBM/sarama`、`github.com/twmb/franz-go`、`github.com/apolloconfig`、`github.com/aws` 及其子包 |
-| infra | `internal/infra/...` | 基础设施 | common | 无 |
-| common | `internal/common/...` | 公共 | 无（只有本层） | 只允许标准库，且禁止 `net`、`database`、`os`、`io/fs`、`io/ioutil` 及其子包 |
-
-- 模块内每个包都必须属于上表某一层，`internal/archtest/...` 除外。不属于任何层时检查失败。
-- 同层内的包可以互相依赖，但目录之间不能形成循环（archtest 逐层检查）。
-
-各层已有子包的职责：
-
-- entry：`httpapi`（HTTP）、`scheduler`（定时任务）等
-- service：项目业务逻辑
-- infra：基础设施，例如
-  - `wsclient`：通用 WS 客户端，负责建连、心跳、重连，是基础设施公共库；
-  - `config`：Apollo + AWS Secrets Manager，只在 cmd 中使用。
-- common：`domain`（Account、Bot、Credentials、OrderUpdate、BBO 等共用类型）
+本项目采用**经典分层架构**：依赖只能自上而下单向流动，层是封闭的，不能跳层。`cmd` 是组装根。
 
 ```
 cmd ──> entry ──> service ──> infra ──> common
  └────────┴──────────┴────────────────> common
 ```
 
+**这不是 Clean 架构、六边形架构或依赖倒置。** service 直接 import infra 的具体包，由 infra 提供能力。未经用户明确同意，不要：
+
+- 在 service 定义端口接口、再由 infra 实现；
+- 把 infra 类型抽象成接口层；
+- 把分层改造成洋葱或整洁架构。
+
+唯一例外是单元测试：service 可以在自己的包内定义 ≤3 个方法的窄接口，由 infra 的具体类型隐式满足，生产装配仍传具体类型。禁止系统性端口化、工厂、注册表。
+
+## 对 AI 的硬性约束
+
+本节是 MUST，优先于你的默认习惯和所谓的「最佳实践」。
+
+1. **先定位再写**：动手前确定代码属于哪一层、哪个包。包路径必须落在「本项目的层级」表中；落不进去就停下来问，不要自创目录。
+2. **先读后写**：找同层 1–2 个现有实现，沿用其结构、命名、错误处理和日志方式。不要引入仓库里没有的新风格。
+3. **最小改动**：只改与需求相关的代码。不顺手重构、不重排 import、不升级依赖、不改格式化配置。
+4. **抽象准入**：没有第二个实现、不属于真实 IO 边界时，不建接口、工厂、基类、泛型仓储、兼容层、fallback、feature flag。三行重复优于一个错误抽象。
+5. **依赖准入**：不新增第三方库。确需新增时，先说明用途、体积、维护状态，等用户确认后再改 `go.mod`。
+6. **不写占位**：不留 TODO、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
+7. **验证真实**：完成前运行本节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、跳过测试、更新快照、放宽架构规则来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增层或模块；新增依赖；修改公共类型、对外接口、消息格式、表结构；需要放宽架构检查；修复历史违规会显著扩大改动范围。
+
+## 分层与依赖
+
+### 层的角色
+
+每一层必须归入以下某种角色。可以按业务拆子包，但不存在不属于任何角色的层。
+
+| 角色 | 职责 | 典型内容 |
+|---|---|---|
+| 入口 | 接收外部触发，转换后调用业务层 | HTTP/gRPC handler、WS 推送接收、MQ 消费、定时任务、CLI |
+| 业务 | 业务规则与流程编排 | 计算、决策、状态流转、结果处理、事务边界 |
+| 基础设施 | 技术细节 | 交易所/第三方客户端、数据库、Redis、Kafka、文件、缓存加载 |
+| 公共 | 各层共用的类型与工具，不依赖任何层 | 通用类型、枚举、哨兵错误、纯函数工具 |
+| 组装 | 创建对象、注入依赖、启停 goroutine，只做接线 | `cmd/<app>/main.go`、`internal/bootstrap` |
+
+### 本项目的层级
+
+> 下表为示例，按实际项目修改。表与 `internal/archtest/arch_test.go` 中的 `architecture` 一一对应，两边必须同时改。在已有层下新增子包（如 `internal/infra/xxx`）不需要改。
+
+| 层 | 包路径 | 可以依赖 | 外部包限制 |
+|---|---|---|---|
+| cmd | `cmd/...` | 所有层 | 无 |
+| entry | `internal/entry/...` | service、common | 不直接用数据库、Redis、MQ、WS SDK |
+| service | `internal/service/...` | infra、common | 禁 `net/http`、`database/sql`、gorm、redis、kafka、websocket |
+| infra | `internal/infra/...` | common | 无 |
+| common | `internal/common/...` | 无 | 只允许标准库，且禁 `net`、`database`、`os`、`io/fs` |
+
+- 模块内每个包必须属于上表某一层，`internal/archtest/...` 除外。
+- 同层内的包可以互相依赖，但目录之间不能形成循环。
+
 ### 依赖规则
 
-- 上层可以依赖下层，**下层禁止 import 上层的任何包**。
-  - 注意：Go 编译器只禁止循环 import，不禁止反向 import。例如 `infra/ws` import `service`，而 `service` 只 import 了 `infra/order`，没有形成环，编译仍然通过。因此必须用 `internal/archtest` 检查（见「检查方式」）。
-- 依赖图中不能有环。新增层时，先确定它在图中的位置，再写代码。
-  - 注意：编译器只禁止单个包之间的循环，不禁止子树之间的循环。例如 `common/x` import `infra/y`，而 `infra/z` import `common/w`，每个包都没有成环，编译通过，但 common 和 infra 已经互相依赖。`internal/archtest` 中的 `TestNoPackageCyclesAtEachLevel` 按目录层级逐层检查这种情况。
-- 禁止通过包级变量绕过依赖规则，例如在下层用全局 `var` 保存上层对象再调用，或在 `init()` 中做依赖装配。所有依赖在组装处通过构造函数（`NewXxx(...)`）传入。
-- 业务层不直接使用中间件或 SDK 的 API（`database/sql`、`gorm`、`go-redis`、`sarama`/`franz-go`、`gorilla/websocket`、`net/http` 客户端等），必须通过基础设施层封装的类型访问。
+- 上层可以依赖下层，**下层禁止 import 上层任何包**。Go 编译器只禁止循环 import，不禁止反向 import，必须靠 archtest 检查。
+- 依赖图不能有环。编译器只禁止单包成环，不禁止子树互依；archtest 按目录层级逐层检查。
+- 禁止通过包级变量、`init()`、反射或 `any` 绕过依赖规则。所有依赖在组装处通过构造函数传入。
+- 业务层不直接使用中间件或 SDK 的 API（`database/sql`、gorm、go-redis、sarama/franz-go、websocket、HTTP 客户端），必须通过 infra 封装的类型访问。
 - 基础设施层只处理技术问题（协议、签名、序列化、连接、重连、持久化），不做业务判断。
-- 入口层只做参数解析、校验和调用，不写业务逻辑，不直接调用基础设施层。
-- 公共层不依赖网络、数据库、IO 相关的包，保持纯数据和纯函数。
-- 数据库模型（gorm model、表结构 struct）只在基础设施层内使用，返回给上层前转换为业务需要的类型。
-- 所有跨层调用的第一个参数传递 `context.Context`，不要在下层自行创建 `context.Background()` 切断取消和超时。
+- 入口层只做解析、校验和调用，不写业务逻辑，不直接调用 infra。
+- 公共层不依赖网络、数据库、IO 相关包，保持纯数据和纯函数。
 
-### 下层通知上层：下层定义接口、函数类型或 channel，上层实现/消费
+### 新代码放哪里
 
-当下层需要把结果交给业务层（下单回报、WS 推送、MQ 消息等）时，**不能直接调用上层**。按以下两种方式之一处理。
+- 新的外部系统接入 → infra，协议和报文转换在该层完成。
+- 新的业务规则或流程 → service；计算尽量写成不依赖 IO 和 goroutine 的纯函数。
+- 新的触发方式 → entry，只做转换和调用。
+- 多层共用的只读类型 → common；只在一层内使用的类型留在该层，不要提前上移。
+- 交易所报文、数据库模型、SDK 类型不得离开 infra；返回上层前转换为业务类型。
 
-#### 方式一：回调接口或函数类型（单次结果、请求-回报型）
+## 跨边界数据与下层通知上层
 
-1. 接口定义在下层，与调用它的类型放在一起。这也符合 Go「接口由使用方定义」的惯例：调用回调的是下层，所以接口在下层。
-2. 上层的类型实现该接口。Go 的接口是隐式实现的，上层不需要声明 `implements`。
+### 类型归属
+
+- 数据库模型、表结构 struct、交易所原始报文、SDK 类型只在 infra 内使用。
+- infra 返回给上层前，转换为 service 需要的类型；转换在 infra 内完成，不要在 service 里解析外部格式。
+- common 只放跨层共用的只读类型、枚举、哨兵错误、纯函数工具；禁止放请求/响应 DTO、PO、带 `json`/`gorm` tag 的结构体。
+
+### 方式一：回调接口或函数类型（单次结果、请求-回报型）
+
+1. 接口定义在下层，与调用它的类型放在一起；签名只用下层或 common 的类型。
+2. 上层类型隐式实现该接口。
 3. 组装处把实现通过构造函数传给下层。
 
 ```go
-// internal/infra/order：下层定义接口，签名只用 infra 或 common 中的类型
+// internal/infra/order：下层定义接口
 type ResultListener interface {
     OnOrderResult(ctx context.Context, ev ResultEvent)
 }
 
-type Client struct {
-    listener ResultListener
-}
+type Client struct{ listener ResultListener }
 
-func NewClient(listener ResultListener) *Client {
-    return &Client{listener: listener}
-}
+func NewClient(listener ResultListener) *Client { return &Client{listener: listener} }
 
-// internal/service：上层实现下层接口（service -> infra，方向合法）
+// internal/service：上层实现（service -> infra，方向合法）
 func (s *HedgeService) OnOrderResult(ctx context.Context, ev order.ResultEvent) { /* ... */ }
 
-// cmd/<app>/main.go：组装
+// cmd：组装
 hedge := service.NewHedgeService(/* ... */)
 client := order.NewClient(hedge)
 ```
 
-只有一个方法时，也可以使用函数类型：`type ResultHandler func(ctx context.Context, ev ResultEvent)`。
+只有一个方法时可用函数类型。只有一个调用方且无需解耦时，上层直接调用下层，不要为形式加接口。
 
-#### 方式二：channel（持续推送、流式数据，优先使用）
+### 方式二：channel（持续推送、流式数据）
 
 1. 事件类型定义在下层或 common。
 2. 下层持有只写 channel（`chan<- Event`），只负责发送。
 3. 上层持有只读 channel（`<-chan Event`），在自己的 goroutine 中消费。
-4. channel 在组装处创建，两端分别交给下层和上层。
+4. channel 在组装处创建；**由拥有者（组装处）关闭**。接收方永不关闭；多发送者时用 `ctx` 取消，不关闭 channel。
 
 ```go
-// cmd/<app>/main.go：组装
-events := make(chan ws.TradeEvent, 10000)
-wsClient := ws.NewTradeClient(cfg.WS, events)   // 参数类型 chan<- ws.TradeEvent
+events := make(chan ws.TradeEvent, 10_000)
+wsClient := ws.NewTradeClient(cfg.WS, events) // chan<- ws.TradeEvent
 hedge := service.NewHedgeService(/* ... */)
 
 g, ctx := errgroup.WithContext(ctx)
 g.Go(func() error { return wsClient.Run(ctx) })
-g.Go(func() error { return hedge.Consume(ctx, events) }) // 参数类型 <-chan ws.TradeEvent
+g.Go(func() error { return hedge.Consume(ctx, events) }) // <-chan ws.TradeEvent
 ```
 
-#### 约束
+### 跨边界约束
 
-- 接口、函数类型和事件类型的签名只能使用下层或 common 中的类型，不能出现上层类型。
-- 事件携带的是转换后的类型，不能直接传递交易所原始报文或 SDK 类型。
-- 参数较多时封装成事件结构体，不要堆叠参数。
+- 接口、函数类型、事件类型的签名只能使用下层或 common 的类型，不能出现上层类型。
+- 事件携带转换后的类型，不传交易所原始报文或 SDK 类型；参数多时封装成事件结构体。
 - 回调运行在 IO/WS 读取 goroutine 上时，耗时处理必须交给其他 goroutine，不能阻塞读取循环。
-- 带缓冲的 channel 需要明确满了以后的策略（阻塞、`select default` 丢弃、告警），并写在代码注释中。
-- channel 由发送方关闭，接收方不关闭；所有 goroutine 都必须能通过 `ctx` 退出，组装处负责等待它们结束。
-- 只有一个调用方且无需解耦时，上层直接调用下层即可，不要为了形式增加接口。
-- 业务层为了单元测试，可以在自己的包中定义只包含所需方法的小接口，由 infra 的具体类型隐式满足。这不违反依赖规则。
+- 有界 channel 必须明确满了的策略（阻塞、`select default` 丢弃、告警），并写在代码注释中。
 
-### 错误处理
+## 数据、时间与一致性
 
-- 每层定义自己的错误（哨兵错误 `var ErrXxx = errors.New(...)` 或错误类型），下层的第三方错误（`sql.ErrNoRows`、`redis.Nil` 等）在本层内转换，不直接暴露给上层。
-- 包装错误使用 `fmt.Errorf("...: %w", err)`，上层用 `errors.Is` / `errors.As` 判断。
-- 不要忽略错误；确实需要忽略时，用 `_ =` 显式忽略并写注释说明原因。
-- 业务流程中不使用 `panic`；只在组装阶段遇到无法启动的配置错误时允许 `panic` 或 `log.Fatal`。
+- 价格、数量、金额统一使用 `shopspring/decimal`，禁止 `float64`/`float32`；同一模块不得混用两种表示。
+- 除法必须指定精度和舍入方式；比较用 `Cmp`，不用 `==`。
+- 金额从字符串或整数构造，不从浮点构造；溢出和精度丢失必须显式处理。
+- 下游写入使用确定性幂等键，数据库加唯一约束；重复消息不能产生重复副作用。
+- 消息流必须处理重复、乱序、gap、断线重连：收到 gap 时作废本地缓存并重拉快照，不能跳过继续用；重连后必须重订阅。
+- service 及 common 中的纯函数不直接调用 `time.Now()`：`now` 通过参数注入。延迟和超时测量使用单调时钟，不用系统墙钟。
 
-### 新代码放哪里
+## 并发与性能
 
-- 新的外部系统接入（交易所、第三方 API、存储）→ 基础设施层，协议和报文转换在该层内完成。
-- 新的业务规则或流程 → 业务层；计算逻辑尽量写成不依赖 IO 和 goroutine 的纯函数，并配表驱动单元测试。
-- 新的触发方式（新接口、新定时任务、新消费者、新的 WS 推送接收）→ 入口层，只做转换和调用。
-- 多个层都用到的类型 → common；只在一层内使用的类型留在该层，不要提前放到 common。
-- 交易所报文结构与业务类型分开定义和存放。
-- 不属于现有任何层的代码：先在「本项目的层级」表中新增层、明确角色和依赖，再写代码。
+- 所有跨层调用的第一个参数是 `context.Context`，一路传递；下层不得自行创建 `context.Background()`/`context.TODO()`。
+- 每个 goroutine 都必须能通过 `ctx` 退出；组装处用 `errgroup` 等待，不能启动后不管。
+- 优先使用有界 channel 并定义背压策略。行情类可以丢弃并置 gap 标记；订单、回报、成交类不能丢，满了应拒绝受理、熔断或告警。
+- 从 channel 读取必须判断关闭：`v, ok := <-ch`；`ok == false` 时退出循环，不能忙等零值。
+- 读循环中禁止 `time.After`（每次分配定时器），用 `time.NewTimer` + `Reset`；退出时 `Stop`。
+- 热路径禁止逐笔日志、`encoding/json`、`fmt.Sprintf`、反射、无界重试和不必要的堆分配。
+- 锁内不做 IO、不调用回调；`sync.Mutex` 不得按值拷贝；不并发读写普通 map。
+- 共享状态要么用 channel 传递，要么用锁保护，不要两者混用。
 
-### 检查方式
+## 错误处理与事务
 
-- 层间依赖由 `internal/archtest` 在 `go test` 中检查，违反时测试失败，不需要额外安装工具。
-- `arch_test.go` 中的 `TestLayerDependencies`：
-  - `architecture` 声明式定义分层，类似 ArchUnit：先用包路径模式定义每层包含哪些包（`*` 匹配一段，结尾的 `/...` 匹配零或多段），再用 `MayOnlyAccess` 定义层之间的依赖；
-  - 同层内的包总是可以互相依赖；`DeniedImports`、`StdlibOnly` 限制外部包；
-  - `EnsureAllPackagesContained`（对应 ArchUnit 的 `ensureAllClassesAreContainedInArchitecture()`）要求模块内每个包都属于某一层或被 `Ignored`；
-  - 一个包按 `Layers` 的顺序匹配，归入第一个匹配的层；
-  - 检查范围包含 `_test.go`，跳过 `testdata`、`vendor`，以及 `.`、`_` 开头的目录。
-- `arch_test.go` 中的 `TestNoPackageCyclesAtEachLevel`：把包路径依次截断到第 1 层到最深层，每层检查一次循环依赖（只看非测试文件），补上编译器管不到的子树之间的循环。报告会列出构成每条边的文件和 import。
-- `engine_test.go` 是通用检查框架（`CheckLayers`、`CheckCycles`），只依赖标准库，与项目无关；`engine_self_test.go` 是框架自测。修改框架时必须补充自测用例，并保证自测通过。其它项目拷贝这两个文件，再写自己的 `arch_test.go` 就能使用。
-- 单独运行：`go test ./internal/archtest`。
-- 快速查看某一层的依赖：`go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/infra/... | grep internal/service`，结果应为空。
-- 提交前运行 `go vet ./...` 和 `go test -race ./...`（含 `internal/archtest`）。
+- 每层定义自己的错误（`var ErrXxx = errors.New(...)` 或错误类型）；第三方的 `sql.ErrNoRows`、`redis.Nil` 等在本层内转换，不直接暴露给上层。
+- 包装错误用 `fmt.Errorf("...: %w", err)`，上层用 `errors.Is`/`errors.As` 判断。
+- 不得忽略错误。确实需要忽略时用 `_ =` 并写注释说明原因。
+- 失败不能只记日志后继续：必须明确重试（有上限和退避）、进入死信、熔断、返回错误或停机中的一种。
+- 事务边界在 service；infra 只负责执行，不在 infra 开事务，不在 entry 开事务。
+- 事务内不做远程调用（交易所、HTTP、MQ 同步发送）；数据库与消息的一致性用 outbox 或提交后发送，不做双写。
+- 业务流程中不使用 `panic`；只有组装阶段遇到无法启动的配置错误才允许 `log.Fatal`。
 
-### 已知的历史违规
+## 测试与验证
+
+- 领域计算、状态流转必须有表驱动单元测试，覆盖正常、边界、非法输入。
+- service 测试使用 infra 的内存 fake，不连接真实数据库、Redis、交易所。
+- infra 用集成测试或契约测试验证协议、序列化、重连；不要 mock 掉被测的转换逻辑。
+- 测试必须确定性：不依赖当前时间、随机数、真实网络、执行顺序；时间通过参数或 fake clock 注入。
+- 禁止 `time.Sleep` 等待异步结果，用 channel、条件变量或 `require.Eventually` 这类有上限的轮询。
+- 禁止为了变绿修改断言、删除用例、加 `t.Skip`、放宽超时；测试只加严不放宽。
+- 覆盖率不是目标，但核心业务分支必须有测试；新增分支不得无测试。
+
+## AI 常见劣化模式
+
+| 劣化写法 | 正确做法 |
+|---|---|
+| service 直接 import gorm/redis/kafka | 通过 infra 封装访问 |
+| 把类型挪到 common 让两层都能用 | 类型归真正拥有它的层，边界做转换 |
+| 单实现也建 `XxxService` 接口 + `NewXxxFactory` | 直接用具体类型，出现第二实现再抽象 |
+| 加 `if useNew { ... } else { ... }` 兼容层 | 删旧路径，保持单一路径 |
+| 改断言、加 `t.Skip`、放宽超时让测试变绿 | 修代码；测试只加严 |
+| 只跑单个测试就宣称全部通过 | 跑完整检查并贴输出 |
+| `if err != nil { return nil }` / `_ = err` | 包装或转换后返回，或明确失败策略 |
+| 金额用 `float64` 或字符串拼 SQL | `decimal.Decimal` + 参数化查询 |
+| WS 读取循环里做 DB 写入或 `time.Sleep` | 投递到有界 channel，异步处理 |
+| `go func() {}` 无 ctx、无等待 | `errgroup` + ctx，组装处等待退出 |
+
+## 检查方式与完成定义
+
+### 检查
+
+- `go vet ./...`
+- `go test ./internal/archtest`：层间依赖、同层子树循环、外部包限制。
+- `golangci-lint run`：至少启用 `errcheck`、`govet`、`staticcheck`、`depguard`、`bodyclose`。
+- `go test -race ./...`
+- 外部包限制用 depguard 的 `list-mode: strict` + 白名单，不要只写 deny 列表，否则未列出的 SDK 仍能进 service。
+- archtest 的 `architecture` 与层级表一一对应；`engine_test.go` 是通用框架，修改时必须补自测。
+
+### 完成定义（DoD）
+
+- [ ] 代码在正确的层，依赖方向正确，archtest 通过。
+- [ ] `go vet`、`golangci-lint`、`go test -race` 全部通过，并贴出真实输出。
+- [ ] 新增业务分支有单元测试，覆盖失败路径。
+- [ ] 没有 TODO、注释掉的代码、调试日志、未使用的参数。
+- [ ] 错误处理、日志上下文、超时和取消符合本文件。
+- [ ] 没有新增依赖、接口、工厂或兼容层；如确有必要，已在回复中说明理由。
+
+## 已知的历史违规
 
 > 记录现存不符合上述规则的代码，避免被模仿；修改相关代码时顺手修正。没有则保持为空。
 
