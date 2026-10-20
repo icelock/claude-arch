@@ -21,18 +21,6 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 唯一例外是单元测试：service 可以在自己的模块内定义不超过 3 个方法的窄 trait，并在 service 内为 infra 的具体类型实现它（方向仍是 service → infra），测试时换成 fake；生产装配仍传具体类型。也可以用函数类型或 `#[cfg(test)]` 的 fake。禁止系统性地为每个 infra 类型建 trait。
 
-## 本项目事实
-
-> 拷贝模板后先填写本节。AI 依据这里的版本选择语法和 API；仍是 `<填写>` 的项先问用户，不要猜。
-
-- Rust：edition `<填写：2021 / 2024>`，MSRV `<填写，如 1.80>`（决定能否用原生 async fn in trait（1.75+）、`[lints]` 表（1.74+）、`LazyLock`（1.80+））
-- 异步运行时：`<填写：tokio / 无>`；异步 trait 写法：`<填写：async-trait 宏 / 原生 async fn in trait>`（原生写法不能用于 `dyn`，需要 `dyn` 时用宏）
-- 数据库：`<填写：sqlx / diesel / sea-orm / 无>`；错误：`<填写：thiserror + anyhow>`；日志：`<填写：tracing>`；表结构迁移：`<填写：sqlx migrate / refinery / 无>`
-- 构建与测试：`<填写，如 cargo test --workspace>`
-- 工程结构：`<填写：单 crate 多模块 / workspace 多 crate>`。
-  - 单 crate：层按模块划分（`src/entry` 等），编译器不检查模块间方向，写代码时自行保证。
-  - 多 crate：每层一个 crate（`crates/entry` 等），下层 crate 的 `Cargo.toml` 不声明上层 crate，由编译器保证；模块划分仍按下方层级表。
-
 ## 规则优先级与工作方式
 
 规则冲突时按以下顺序取舍：**用户当次明确指令 > 正确性与安全 > 本文件的架构规则 > 仓库现有写法 > 通用最佳实践**。例外：安全类规则（密钥、注入、权限校验）即使用户要求放宽，也要先说明风险并得到确认。现有代码违反本文件时不要模仿，新代码按本文件写。

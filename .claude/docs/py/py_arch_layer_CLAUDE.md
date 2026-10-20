@@ -21,17 +21,6 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 单测可以用 fake 对象或 monkeypatch 替换 infra 的具体类，不要为了测试在生产代码里引入端口层。
 
-## 本项目事实
-
-> 拷贝模板后先填写本节。AI 依据这里的版本选择语法和 API；仍是 `<填写>` 的项先问用户，不要猜。
-
-- Python：`<填写：3.11 / 3.12 / 3.13>`（3.11 起才有 `asyncio.TaskGroup`、`typing.Self`）
-- 包管理：`<填写：uv / poetry / pip-tools>`；依赖声明在 `pyproject.toml`
-- Web 框架：`<填写：FastAPI / Django / Flask / 无>`；ORM：`<填写：SQLAlchemy 2.x / Django ORM / 无>`；表结构迁移：`<填写：Alembic / Django migrations / 无>`
-- 并发模型：`<填写：asyncio / 同步 + 线程池>`。asyncio 项目中，业务路径上的 IO 一律用异步客户端
-- 类型检查：`<填写：mypy / pyright>`；格式化与 lint：`<填写：ruff>`
-- 检查命令：`<填写，如 uv run ruff check . && uv run mypy . && uv run pytest>`
-
 ## 规则优先级与工作方式
 
 规则冲突时按以下顺序取舍：**用户当次明确指令 > 正确性与安全 > 本文件的架构规则 > 仓库现有写法 > 通用最佳实践**。例外：安全类规则（密钥、注入、权限校验）即使用户要求放宽，也要先说明风险并得到确认。现有代码违反本文件时不要模仿，新代码按本文件写。
