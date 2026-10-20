@@ -211,7 +211,6 @@ public class PaymentResultHandler implements PaymentResultListener {
 
 ## Java 编码细则
 
-- Lombok 只用 `@RequiredArgsConstructor`、`@Getter`、`@Builder`、`@Slf4j`；Entity/PO 上禁止 `@Data`（它生成的 `equals`/`hashCode` 包含可变字段），禁止 `@SneakyThrows`。
 - 值对象和 DTO 优先用 record；集合字段对外暴露时返回不可变视图。
 - 方法不返回 null 集合，返回空集合；`Optional` 只用作返回值，不用作字段和参数。
 - 注释写「为什么」，不写「做了什么」；公开方法的非显然前置条件、线程安全性写在 Javadoc 里。
