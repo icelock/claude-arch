@@ -30,8 +30,8 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 - 数据库：`<填写：database/sql + sqlx / gorm / pgx>`；日志：`<填写：log/slog / zap>`；表结构迁移：`<填写：golang-migrate / goose / 无>`
 - 构建与测试：`<填写，如 go test -race ./...>`
 - 工程结构：`<填写：单 module / 多 module>`。
-  - 单 module：层只按目录划分，依赖方向由 archtest 保证。
-  - 多 module：每个 module 内部仍按下方层级表划分，依赖方向由 archtest 和 `go.mod` 的 require 关系共同保证。
+  - 单 module：层只按目录划分。
+  - 多 module：每个 module 内部仍按下方层级表划分，module 之间的依赖方向由 `go.mod` 的 require 关系保证。
 
 ## 规则优先级与工作方式
 
@@ -56,8 +56,8 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 4. **抽象准入**：没有第二个实现、不属于真实 IO 边界时，不建接口、工厂、泛型仓储、兼容层、fallback、feature flag。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增第三方库。确需新增时，先说明用途、体积、维护状态，等用户确认后再改 `go.mod`。
 6. **不写占位**：不留 TODO、`panic("not implemented")`、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`t.Skip`、放宽超时、更新快照或放宽 archtest 规则来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增层或模块；新增依赖；修改公共类型、对外接口、消息格式、表结构；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`t.Skip`、放宽超时、更新快照来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增层或模块；新增依赖；修改公共类型、对外接口、消息格式、表结构；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -75,7 +75,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改。**以 `internal/archtest/arch_test.go` 的 `architecture` 为准**，两边必须同时改。在已有层下新增子包（如 `internal/infra/xxx`）不需要改。
+> 下表为示例，按实际项目修改。在已有层下新增子包（如 `internal/infra/xxx`）不需要改。
 
 | 层 | 包路径 | 可以依赖 | 外部包限制 |
 |---|---|---|---|
@@ -85,13 +85,13 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 | infra | `internal/infra/...` | common | 无 |
 | common | `internal/common/...` | 无 | 只允许标准库，且禁 `net`、`database`、`os`、`io/fs` |
 
-- 模块内每个包必须属于上表某一层，`internal/archtest/...` 除外。archtest 开启了 `EnsureAllPackagesContained`，新目录不登记就会检查失败。
+- 模块内每个包必须属于上表某一层，新目录落不进去就停下来问。
 - 同层内的包可以互相依赖，但目录之间不能形成循环。
 
 ### 依赖规则
 
-- 上层可以依赖下层，**下层禁止 import 上层任何包**。Go 编译器只禁止循环 import，不禁止反向 import，必须靠 archtest 检查。
-- 依赖图不能有环。编译器只禁止单包成环，不禁止子树互依；archtest 按目录层级逐层检查。
+- 上层可以依赖下层，**下层禁止 import 上层任何包**。Go 编译器只禁止循环 import，不禁止反向 import，写代码时自行保证。
+- 依赖图不能有环。编译器只禁止单包成环，不禁止子树互依，按目录层级逐层看也不能有环。
 - 禁止通过包级变量、`init()`、反射或 `any` 绕过依赖规则。所有依赖在 cmd 通过构造函数传入。
 - 业务层不直接使用中间件或 SDK 的 API（`database/sql`、gorm、go-redis、sarama/franz-go、websocket、HTTP 客户端），必须通过 infra 封装的类型访问。
 - 基础设施层只处理技术问题（协议、签名、序列化、连接、重连、持久化），不做业务判断。
@@ -146,7 +146,7 @@ client := payment.NewClient(handler)
 orders := service.NewOrderService(client)
 ```
 
-- **实现回调接口的类型不能再持有那个下层客户端**：上例若让 `OrderService` 同时实现 `ResultListener`，`NewClient` 需要先有 `OrderService`，`NewOrderService` 又需要先有 `Client`，cmd 里无法按顺序构造，只能先建半成品再 `SetListener` 回填，这正是下面禁止的「上层把自己注册给下层」。包依赖是合法的，archtest 检查不到这种装配上的环。
+- **实现回调接口的类型不能再持有那个下层客户端**：上例若让 `OrderService` 同时实现 `ResultListener`，`NewClient` 需要先有 `OrderService`，`NewOrderService` 又需要先有 `Client`，cmd 里无法按顺序构造，只能先建半成品再 `SetListener` 回填，这正是下面禁止的「上层把自己注册给下层」。包依赖是合法的，但装配上会成环。
 - 只有一个方法时可用函数类型。只有一个调用方且无需解耦时，上层直接调用下层，不要为形式加接口。
 
 ### 方式二：channel（持续推送、流式数据）
@@ -262,16 +262,13 @@ g.Go(func() error { return consumer.Consume(ctx, events) }) // <-chan stream.Eve
 ### 检查
 
 - `go vet ./...`
-- `go test ./internal/archtest`：层间依赖、同层子树循环、外部包限制、所有包都已归层。
-- `golangci-lint run --enable bodyclose,rowserrcheck,sqlclosecheck,noctx`：只做代码质量检查（默认已含 `errcheck`、`govet`、`staticcheck`），不需要 `.golangci.yml`。架构和依赖方向只由 archtest 检查，不要再用 depguard 重复配置。
+- `golangci-lint run --enable bodyclose,rowserrcheck,sqlclosecheck,noctx`：默认已含 `errcheck`、`govet`、`staticcheck`。
 - `go test -race ./...`
-- archtest 的外部包限制（`DeniedImports`）是 deny 列表，未列出的 SDK 仍能进 service：引入新的 SDK 或客户端库时，必须同时把它加进 service 的 `DeniedImports`。
-- archtest 的 `architecture` 与层级表一一对应；`engine_test.go` 是通用框架，修改时必须补 `engine_self_test.go` 的自测。
-- 以下规则 archtest 和 lint 拦不住，靠自查和 review：金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、channel 满时的策略、回调类型的装配环。
+- 以下规则 lint 拦不住，靠自查和 review：金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、channel 满时的策略、回调类型的装配环。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层，依赖方向正确，archtest 通过。
+- [ ] 代码在正确的层，依赖方向符合本文件。
 - [ ] `go vet`、`golangci-lint`、`go test -race` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、注释掉的代码、调试日志、未使用的参数。
