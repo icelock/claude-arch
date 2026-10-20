@@ -44,7 +44,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 4. **抽象准入**：没有第二个实现、不属于真实 IO 边界时，不建 trait、工厂、泛型仓储、兼容层、fallback、feature flag。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增 crate。确需新增时，先说明用途、体积、维护状态和 license，等用户确认后再改 `Cargo.toml`。
 6. **不写占位**：不留 TODO、`todo!()`、`unimplemented!()`、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 检查来让结果变绿。
+7. **验证真实**：完成前运行对应语言检查文件（`rust_check_CLAUDE.md`）列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 检查来让结果变绿。
 8. **必须停下来问**：层级归属不明；新增 crate 或层；新增依赖；修改公共类型、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
@@ -170,41 +170,9 @@ let orders = OrderService::new(payment.clone());
 | entry 的 handler、消费者、定时任务里写业务逻辑 | 入口只转换和调用，逻辑放 service |
 | 加 `#[ignore]`、改断言，或只跑单个测试就宣称通过 | 修代码，跑完整检查并贴输出 |
 
-## 检查方式与完成定义
+## 架构自查
 
-### 检查
-
-- `cargo fmt --check`
-- `cargo clippy --all-targets -- -D warnings`
-- `cargo test`（多 crate 用 `cargo test --workspace`）
-- 在 `Cargo.toml` 中用 lint 把文字约束变成编译检查（workspace 写 `[workspace.lints.clippy]`，各 crate 写 `[lints] workspace = true`）：
-
-```toml
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
-unimplemented = "deny"
-dbg_macro = "deny"
-print_stdout = "deny"
-print_stderr = "deny"
-await_holding_lock = "deny"
-float_arithmetic = "warn"   # 金额必须用 Decimal；确需浮点处局部 allow 并注释原因
-```
-
-- `clippy.toml` 中设置 `allow-unwrap-in-tests = true`、`allow-expect-in-tests = true`，并用 `disallowed-methods` 禁止 `chrono::Utc::now`、`std::time::SystemTime::now`；只在提供时钟的那一处 `#[allow(clippy::disallowed_methods)]` 并注释原因。启动阶段允许的 `expect` 同样局部 allow。
-- 以下规则靠自查和 review：回调类型与下层客户端互相持有、金额舍入策略、事务内远程调用、锁内 IO、日志中的敏感信息、通道满时的策略。
-
-### 完成定义（DoD）
-
-- [ ] 代码在正确的层和 crate，依赖方向符合本文件。
-- [ ] `cargo fmt`、`clippy -D warnings`、`cargo test` 全部通过，并贴出真实输出。
-- [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
-- [ ] 没有 TODO、`todo!()`、注释掉的代码、调试日志、未使用的参数。
-- [ ] 错误处理、日志、超时与取消、配置方式符合本文件。
-- [ ] 没有新增依赖、trait、工厂或兼容层；如确有必要，已在回复中说明理由。
-- [ ] 已按「工作方式」的格式汇报。
+- 代码在正确的层和 crate，依赖方向符合本文件；service 不直接依赖 sqlx、redis、reqwest、tokio-tungstenite。
 
 ## 已知的历史违规
 

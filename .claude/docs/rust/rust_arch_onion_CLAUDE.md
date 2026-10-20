@@ -38,7 +38,7 @@
 4. **抽象准入**：真实 IO 边界的出站端口 trait 是架构要求，必须建；一个外部能力对应一个端口，不按方法拆。除此之外，没有第二个实现时，不建 trait、工厂、泛型仓储、兼容层、fallback、feature flag；纯计算不建端口。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增 crate 依赖。确需新增时，先说明用途、体积、维护状态和 license，等用户确认后再改 `Cargo.toml`。
 6. **不写占位**：不留 TODO、`todo!()`、`unimplemented!()`、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 检查来让结果变绿。
+7. **验证真实**：完成前运行对应语言检查文件（`rust_check_CLAUDE.md`）列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 检查来让结果变绿。
 8. **必须停下来问**：层级归属不明；新增 crate 或层；新增依赖；修改公共类型、端口签名、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
@@ -57,7 +57,7 @@
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改。新增 crate、拆分适配器时，同步更新本表和「检查」一节的脚本。
+> 下表为示例，按实际项目修改。新增 crate、拆分适配器时，同步更新本表和 `rust_check_CLAUDE.md` 中的检查配置。
 
 | 层 | crate / 模块 | 可以依赖 | 外部依赖限制 |
 |---|---|---|---|
@@ -203,41 +203,11 @@ async fn pay(State(svc): State<Arc<PayOrderService>>, Path(id): Path<i64>) -> Re
 | 业务路径 `unwrap()`，或只打日志后继续 | 返回 `Result`，或明确重试、死信、熔断 |
 | 加 `#[ignore]`、改断言，或只跑单个测试就宣称通过 | 修代码，跑完整检查并贴输出 |
 
-## 检查方式与完成定义
+## 架构自查
 
-### 检查
-
-- `cargo fmt --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
-- 在 workspace 的 `Cargo.toml` 中用 lint 把文字约束变成编译检查（各 crate 写 `[lints] workspace = true`）：
-
-```toml
-[workspace.lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
-unimplemented = "deny"
-dbg_macro = "deny"
-print_stdout = "deny"
-print_stderr = "deny"
-await_holding_lock = "deny"
-float_arithmetic = "warn"   # 金额必须用 Decimal；确需浮点处局部 allow 并注释原因
-```
-
-- 根目录 `clippy.toml` 设置 `allow-unwrap-in-tests = true`、`allow-expect-in-tests = true`；`crates/domain/clippy.toml` 和 `crates/application/clippy.toml` 再用 `disallowed-methods` 禁止 `chrono::Utc::now`、`std::time::SystemTime::now`、`std::time::Instant::now`（领域层），时间只能通过参数或 `Clock` 端口获得。clippy 只读取离 crate 最近的一个 `clippy.toml`，不会合并，所以子目录的文件要重复根目录的设置。
-- 以下规则靠自查和 review：端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额舍入策略、持有 `Tx` 时的远程调用、锁内 IO、日志中的敏感信息、通道满时的策略。
-
-### 完成定义（DoD）
-
-- [ ] 代码在正确的层和 crate，依赖方向符合本文件。
-- [ ] `cargo fmt`、`clippy -D warnings`、`cargo test --workspace` 全部通过，并贴出真实输出。
-- [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
-- [ ] 没有 TODO、`todo!()`、注释掉的代码、调试日志、未使用的参数。
-- [ ] 错误处理、日志、超时与取消、配置方式符合本文件。
-- [ ] 没有新增依赖、工厂或兼容层；新增端口对应真实 IO 边界；如有例外，已在回复中说明理由。
-- [ ] 已按「工作方式」的格式汇报。
+- 代码在正确的层和 crate，依赖方向由外向内；适配器之间互不依赖。
+- 端口按业务设计而不是按外部 API 设计；新增端口对应真实 IO 边界。
+- 应用层不写业务规则；一个事务只修改一个聚合；持有 `Tx` 时不 `.await` 远程调用。
 
 ## 已知的历史违规
 
