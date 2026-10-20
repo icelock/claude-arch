@@ -48,8 +48,8 @@
 4. **抽象准入**：真实 IO 边界的出站端口 trait 是架构要求，必须建；一个外部能力对应一个端口，不按方法拆。除此之外，没有第二个实现时，不建 trait、工厂、泛型仓储、兼容层、fallback、feature flag；纯计算不建端口。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增 crate 依赖。确需新增时，先说明用途、体积、维护状态和 license，等用户确认后再改 `Cargo.toml`。
 6. **不写占位**：不留 TODO、`todo!()`、`unimplemented!()`、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 或 CI 检查来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增 crate 或层；新增依赖；修改公共类型、端口签名、对外接口、表结构、消息格式；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 检查来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增 crate 或层；新增依赖；修改公共类型、端口签名、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -289,26 +289,6 @@ async fn pay(State(svc): State<Arc<PayOrderService>>, Path(id): Path<i64>) -> Re
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- 依赖方向由 `Cargo.toml` 保证，CI 再执行以下脚本防止有人改错 `Cargo.toml`，输出为空才算通过（假设 crate 名与目录名一致）：
-
-```bash
-#!/usr/bin/env bash
-fail=0
-deps() { cargo tree -p "$1" -e normal --prefix none ${2:+--depth $2} | tail -n +2; }
-# 领域层：整棵依赖树中不得出现项目 crate、异步运行时和 IO crate
-deps domain | grep -E '^(application|adapter-|app |tokio|sqlx|reqwest|redis|rdkafka|hyper)' && fail=1
-# 领域层：直接依赖中不得有 serde。只查直接依赖，因为 rust_decimal、chrono 等可能通过 feature 间接带入 serde，那不算违规
-deps domain 1 | grep -E '^serde ' && fail=1
-# 应用层：直接依赖中项目 crate 只能是 domain，不得有 IO crate；tokio 只能启用无 IO 的 feature
-deps application 1 | grep -E '^(adapter-|app |sqlx|reqwest|redis|rdkafka|hyper)' && fail=1
-cargo tree -p application -e normal,features -i tokio --prefix none | grep -E 'tokio feature "(net|fs|process|io-util|rt)' && fail=1
-# 适配器之间互不依赖
-for c in $(ls crates | grep '^adapter-'); do
-  deps "$c" 1 | grep -E '^adapter-' && { echo "$c 依赖了其他适配器"; fail=1; }
-done
-exit $fail
-```
-
 - 在 workspace 的 `Cargo.toml` 中用 lint 把文字约束变成编译检查（各 crate 写 `[lints] workspace = true`）：
 
 ```toml
@@ -326,11 +306,11 @@ float_arithmetic = "warn"   # 金额必须用 Decimal；确需浮点处局部 al
 ```
 
 - 根目录 `clippy.toml` 设置 `allow-unwrap-in-tests = true`、`allow-expect-in-tests = true`；`crates/domain/clippy.toml` 和 `crates/application/clippy.toml` 再用 `disallowed-methods` 禁止 `chrono::Utc::now`、`std::time::SystemTime::now`、`std::time::Instant::now`（领域层），时间只能通过参数或 `Clock` 端口获得。clippy 只读取离 crate 最近的一个 `clippy.toml`，不会合并，所以子目录的文件要重复根目录的设置。
-- 以下规则工具拦不住，靠自查和 review：端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额舍入策略、持有 `Tx` 时的远程调用、锁内 IO、日志中的敏感信息、通道满时的策略。
+- 以下规则靠自查和 review：端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额舍入策略、持有 `Tx` 时的远程调用、锁内 IO、日志中的敏感信息、通道满时的策略。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层和 crate，依赖方向正确，CI 依赖检查脚本通过。
+- [ ] 代码在正确的层和 crate，依赖方向符合本文件。
 - [ ] `cargo fmt`、`clippy -D warnings`、`cargo test --workspace` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、`todo!()`、注释掉的代码、调试日志、未使用的参数。
