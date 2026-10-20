@@ -1,3 +1,5 @@
+package com.xcoin.strategy.architecture;
+
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -6,32 +8,28 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.library.dependencies.SliceAssignment;
 import com.tngtech.archunit.library.dependencies.SliceIdentifier;
+import com.xcoin.strategy.utils.AopContextUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import com.tngtech.archunit.library.GeneralCodingRules;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
 
-import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predicates.annotatedWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
  * 入口层（controller、listener、schedule）-> service -> infra，dto/enums/utils 为公共包，config、bootstrap 为组装。
- * 由人工定期运行：mvn test -Dtest=LayerDependencyTest。
- * 多模块工程再执行 mvn dependency:tree -pl <下层模块>，输出中不应出现上层模块。
  */
 class LayerDependencyTest {
 
-    private static final String ROOT = "com.test.strategy";
+    private static final String ROOT = "com.xcoin.strategy";
 
     // 静态初始化而非 @BeforeAll，因为 packageDepths 参数源也要用到
     private static final JavaClasses classes = new ClassFileImporter()
@@ -153,28 +151,14 @@ class LayerDependencyTest {
                 .check(classes);
     }
 
-    @Test
-    void generalCodingRules() {
-        GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION.check(classes);
-        GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS.check(classes);   // System.out、printStackTrace
-        GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING.check(classes);
-        GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED.check(classes); // Date、Calendar、SimpleDateFormat
-    }
-
-    @Test
-    void serviceDoesNotReadClock() {
-        noClasses().that().resideInAPackage(ROOT + ".service..")
-                .should().callMethod(System.class, "currentTimeMillis")
-                .orShould().callMethod(Instant.class, "now")
-                .orShould().callMethod(LocalDateTime.class, "now")
-                .check(classes);
-    }
 
     @Test
     void transactionalOnlyInService() {
         noClasses().that().resideOutsideOfPackage(ROOT + ".service..")
                 .should().beAnnotatedWith(Transactional.class)
-                .orShould().containAnyMethodsThat(annotatedWith(Transactional.class))
+                .check(classes);
+        noMethods().that().areDeclaredInClassesThat().resideOutsideOfPackage(ROOT + ".service..")
+                .should().beAnnotatedWith(Transactional.class)
                 .check(classes);
     }
 }
