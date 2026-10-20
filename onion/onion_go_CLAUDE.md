@@ -23,7 +23,7 @@
 - 模块路径：`<填写，如 example.com/project>`
 - 数据库：`<填写：database/sql + sqlx / gorm / pgx>`；日志：`<填写：log/slog / zap>`；表结构迁移：`<填写：golang-migrate / goose / 无>`
 - 构建与测试：`<填写，如 go test -race ./...>`
-- 工程结构：`<填写：单 module / 多 module>`。单 module 时依赖方向由 archtest 保证；多 module 时再加上 `go.mod` 的 require 关系。
+- 工程结构：`<填写：单 module / 多 module>`。多 module 时 module 之间的依赖方向由 `go.mod` 的 require 关系保证。
 
 ## 规则优先级与工作方式
 
@@ -48,8 +48,8 @@
 4. **抽象准入**：真实 IO 边界的出站端口是架构要求，必须建；一个外部能力对应一个端口，不按方法拆。除此之外，没有第二个实现时，不建接口、工厂、泛型仓储、兼容层、fallback、feature flag；纯计算不建端口。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增第三方库。确需新增时，先说明用途、体积、维护状态，等用户确认后再改 `go.mod`。
 6. **不写占位**：不留 TODO、`panic("not implemented")`、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`t.Skip`、放宽超时、更新快照或放宽 archtest 规则来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增包或层；新增依赖；修改公共类型、端口签名、对外接口、消息格式、表结构；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`t.Skip`、放宽超时、更新快照来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增包或层；新增依赖；修改公共类型、端口签名、对外接口、消息格式、表结构；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -67,7 +67,7 @@
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改。**以 `internal/archtest/arch_test.go` 的 `architecture` 为准**，新增包、拆分适配器时两边同时改。在已有层下新增子包不需要改。
+> 下表为示例，按实际项目修改。在已有层下新增子包不需要改。
 
 | 层 | 包路径 | 可以依赖 | 外部依赖限制 |
 |---|---|---|---|
@@ -91,7 +91,7 @@
 - 新的业务流程 → application 的应用服务；需要外部能力时在 `ports.go` 新增接口。
 - 新的外部系统接入 → `adapter/out`，实现端口。
 - 新的触发方式 → `adapter/in`，只做转换和调用。
-- 新增包或适配器：先更新层级表和 archtest 的 `architecture`，再写代码。
+- 新增包或适配器：先更新层级表，再写代码。
 
 ## 端口与跨边界类型
 
@@ -257,42 +257,13 @@ pay := application.NewPayOrderService(tx, persistence.NewOrderRepo(db), payment.
 ### 检查
 
 - `go vet ./...`
-- `golangci-lint run --enable bodyclose,rowserrcheck,sqlclosecheck,noctx`：只做代码质量检查（默认已含 `errcheck`、`govet`、`staticcheck`），不需要 `.golangci.yml`。架构和依赖方向只由 archtest 检查，不要再用 depguard 重复配置。
+- `golangci-lint run --enable bodyclose,rowserrcheck,sqlclosecheck,noctx`：默认已含 `errcheck`、`govet`、`staticcheck`。
 - `go test -race ./...`
-- `go test ./internal/archtest`：层间依赖、适配器之间互不依赖、内层外部包限制、所有包都已归层、逐层循环依赖。
-- archtest 框架复用 `layer/archtest_go` 的 `engine_test.go` 和 `engine_self_test.go`，拷到 `internal/archtest`；本项目的分层定义写在 `arch_test.go`：
-
-```go
-// internal/archtest/arch_test.go：与「本项目的层级」表一一对应
-// 层按顺序匹配，包归入第一个匹配的层。每个出站适配器单独成层且互不在 MayOnlyAccess 中，以此保证彼此不依赖。
-// DeniedImports 命中该包及其子包；不要写 "net"，否则会连纯计算的 net/url、net/netip 一起禁掉。
-var innerDenied = []string{"net/http", "net/rpc", "net/smtp", "database/sql", "os", "io/fs", "encoding/json",
-	"gorm.io", "github.com/redis", "github.com/IBM/sarama", "github.com/twmb/franz-go", "github.com/gorilla/websocket"}
-
-var architecture = Architecture{
-	Layers: []Layer{
-		{Name: "cmd", Packages: []string{"cmd/..."}, MayAccessAll: true},
-		{Name: "adapter-in", Packages: []string{"internal/adapter/in/..."}, MayOnlyAccess: []string{"application", "domain"}},
-		{Name: "out-payment", Packages: []string{"internal/adapter/out/payment/..."}, MayOnlyAccess: []string{"application", "domain"}},
-		{Name: "out-persistence", Packages: []string{"internal/adapter/out/persistence/..."}, MayOnlyAccess: []string{"application", "domain"}},
-		{Name: "out-mq", Packages: []string{"internal/adapter/out/mq/..."}, MayOnlyAccess: []string{"application", "domain"}},
-		{Name: "application", Packages: []string{"internal/application/..."}, MayOnlyAccess: []string{"domain"}, DeniedImports: innerDenied},
-		{Name: "domain", Packages: []string{"internal/domain/..."}, DeniedImports: innerDenied},
-	},
-	Ignored:                    []string{"internal/archtest/..."},
-	EnsureAllPackagesContained: true,
-}
-
-func TestLayerDependencies(t *testing.T)          { architecture.CheckLayers(t) }
-func TestNoPackageCyclesAtEachLevel(t *testing.T) { architecture.CheckCycles(t) }
-```
-
-- 内层的 `DeniedImports` 是 deny 列表：引入新的框架、驱动或客户端库时，必须同时加进 `innerDenied`。
-- 以下规则 archtest 拦不住，靠自查和 review：内层使用 `net` 包做 socket IO、端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、channel 满时的策略。
+- 以下规则靠自查和 review：内层使用 `net` 包做 socket IO、端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、channel 满时的策略。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层，依赖方向正确，archtest 通过。
+- [ ] 代码在正确的层，依赖方向符合本文件。
 - [ ] `go vet`、`golangci-lint`、`go test -race` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、注释掉的代码、调试日志、未使用的参数。
