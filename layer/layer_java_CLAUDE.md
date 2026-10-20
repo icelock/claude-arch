@@ -9,6 +9,8 @@
   └────────┴──────────┴──────────┴─────> common
 ```
 
+**组装层（根包、`config`、`bootstrap`）可以依赖所有层**：它只做接线，是唯一同时知道所有具体实现的地方；任何层都不能反过来依赖组装层。
+
 common 是共享内核，各层依赖 common 不算跳层；除此之外，entry 不能直接依赖 infra。
 
 **这不是 Clean 架构、六边形架构或依赖倒置。** service 直接依赖 infra 的具体类。未经用户明确同意，不要：
@@ -191,7 +193,7 @@ public class PaymentResultHandler implements PaymentResultListener {
 - 业务异常定义在 service 或 common；entry 用 `@RestControllerAdvice` 统一转换为响应。
 - 禁止空 `catch`、`catch (Exception e) { log.error(...) }` 后继续执行、`printStackTrace()`；失败必须明确采取以下一种处理：重试（有上限和退避）、死信、熔断、返回错误、停机。
 - `@Transactional` 只加在 service 的 public、非 final 方法上。同类自调用不经过 Spring 代理，事务不生效，必须拆到另一个 Bean 或改用编程式事务。
-- 受检异常默认不回滚，需要回滚时显式写 `rollbackFor = Exception.class`；传播行为显式声明，不依赖默认值。
+- 受检异常默认不回滚，需要回滚时显式写 `rollbackFor = Exception.class`；使用非默认的传播行为（如 `REQUIRES_NEW`、`NESTED`）时必须显式声明并注释原因，默认的 `REQUIRED` 不用写。
 - 事务内不做远程调用（第三方 HTTP、MQ 同步发送）；数据库与消息的一致性用 outbox 或 `TransactionSynchronization.afterCommit`，不做双写。
 - 不在 entry、infra 或组装层开事务。
 
