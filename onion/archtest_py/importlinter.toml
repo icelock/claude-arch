@@ -1,0 +1,28 @@
+# import-linter 配置：合并进项目的 pyproject.toml，由人工定期运行 lint-imports。
+# 禁用列表是 deny 列表：引入新的中间件、框架、驱动或客户端时，必须把它的顶层包名加进去。
+[tool.importlinter]
+root_package = "myapp"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "洋葱依赖：只能由外向内"
+type = "layers"
+# main 是启动入口，会 import bootstrap，所以两者分成上下两层；用 | 并列会被视为互相独立，检查直接失败。
+layers = ["myapp.main", "myapp.bootstrap", "myapp.adapter", "myapp.application", "myapp.domain"]
+
+[[tool.importlinter.contracts]]
+name = "入站与出站适配器互不依赖"
+type = "independence"
+modules = ["myapp.adapter.inbound", "myapp.adapter.outbound"]
+
+[[tool.importlinter.contracts]]
+name = "出站适配器之间互不依赖"
+type = "independence"
+modules = ["myapp.adapter.outbound.payment", "myapp.adapter.outbound.db", "myapp.adapter.outbound.mq"]
+
+[[tool.importlinter.contracts]]
+name = "内层不依赖框架和 IO 库"
+type = "forbidden"
+source_modules = ["myapp.domain", "myapp.application"]
+forbidden_modules = ["pydantic", "fastapi", "starlette", "sqlalchemy", "redis", "httpx", "requests", "aiohttp",
+                     "websockets", "aiokafka", "confluent_kafka", "asyncpg", "psycopg", "pymysql", "boto3"]
