@@ -9,18 +9,25 @@ import com.tngtech.archunit.library.dependencies.SliceIdentifier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import com.tngtech.archunit.library.GeneralCodingRules;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
 
+import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predicates.annotatedWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
  * 入口层（controller、listener、schedule）-> service -> infra，dto/enums/utils 为公共包，config、bootstrap 为组装。
+ * 由人工定期运行：mvn test -Dtest=LayerDependencyTest。
+ * 多模块工程再执行 mvn dependency:tree -pl <下层模块>，输出中不应出现上层模块。
  */
 class LayerDependencyTest {
 
@@ -143,6 +150,31 @@ class LayerDependencyTest {
                         "org.apache.http..",
                         "jakarta.websocket..",
                         "org.springframework.web.socket..")
+                .check(classes);
+    }
+
+    @Test
+    void generalCodingRules() {
+        GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION.check(classes);
+        GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS.check(classes);   // System.out、printStackTrace
+        GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING.check(classes);
+        GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED.check(classes); // Date、Calendar、SimpleDateFormat
+    }
+
+    @Test
+    void serviceDoesNotReadClock() {
+        noClasses().that().resideInAPackage(ROOT + ".service..")
+                .should().callMethod(System.class, "currentTimeMillis")
+                .orShould().callMethod(Instant.class, "now")
+                .orShould().callMethod(LocalDateTime.class, "now")
+                .check(classes);
+    }
+
+    @Test
+    void transactionalOnlyInService() {
+        noClasses().that().resideOutsideOfPackage(ROOT + ".service..")
+                .should().beAnnotatedWith(Transactional.class)
+                .orShould().containAnyMethodsThat(annotatedWith(Transactional.class))
                 .check(classes);
     }
 }
