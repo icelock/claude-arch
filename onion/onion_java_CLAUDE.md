@@ -24,8 +24,8 @@
 - 持久层：`<填写：MyBatis-Plus / MyBatis / JPA>`；日志：`<填写：SLF4J + Logback>`；表结构迁移：`<填写：Flyway / Liquibase / 无>`
 - 构建与测试：`<填写，如 mvn -q test>`
 - 工程结构：`<填写：单模块多包 / 多模块>`。
-  - 单模块：层只按包划分，依赖方向由 ArchUnit 保证。
-  - 多模块：按层拆 Maven 模块（如 `xxx-domain`、`xxx-application`、`xxx-adapter`、`xxx-boot`），依赖方向由 `pom.xml` 和 ArchUnit 共同保证，模块内的包名仍按下方层级表。
+  - 单模块：层只按包划分。
+  - 多模块：按层拆 Maven 模块（如 `xxx-domain`、`xxx-application`、`xxx-adapter`、`xxx-boot`），模块之间的依赖方向由 `pom.xml` 保证，模块内的包名仍按下方层级表。
 
 ## 规则优先级与工作方式
 
@@ -50,8 +50,8 @@
 4. **抽象准入**：真实 IO 边界的出站端口是架构要求，必须建；一个外部能力对应一个端口，不按方法拆。除此之外，没有第二个实现时，不建接口、工厂、抽象类、泛型 Repository、兼容层、fallback、feature flag；纯计算不建端口。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增第三方库或 Spring Starter。确需新增时，先说明用途、体积、维护状态，等用户确认后再改 `pom.xml`。
 6. **不写占位**：不留 TODO、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`@Disabled`、放宽超时、更新快照或放宽 ArchUnit 规则来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增模块或层；新增依赖；修改公共类型、端口签名、对外接口、表结构、消息格式；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`@Disabled`、放宽超时、更新快照来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增模块或层；新增依赖；修改公共类型、端口签名、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -69,7 +69,7 @@
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改。新增模块、拆分适配器时，同步更新本表和 ArchUnit 配置。
+> 下表为示例，按实际项目修改。新增模块、拆分适配器时同步更新本表。
 
 | 层 | Maven 模块 / 包 | 可以依赖 | 外部依赖限制 |
 |---|---|---|---|
@@ -93,7 +93,7 @@
 - 新的业务流程 → 应用服务；需要外部能力时在 `port` 新增接口。
 - 新的外部系统接入 → 出站适配器，实现已有或新增的端口。
 - 新的触发方式 → 入站适配器，只做转换和调用。
-- 新增模块或适配器：先更新层级表和 ArchUnit 配置，再写代码。
+- 新增模块或适配器：先更新层级表，再写代码。
 
 ## 端口与跨边界类型
 
@@ -267,66 +267,12 @@ public class OrderController {
 
 ### 检查
 
-- `mvn test`：单元测试 + ArchUnit。
-- `mvn dependency:tree -pl xxx-domain`：不应出现 Spring、数据库、消息依赖。
-- ArchUnit 至少覆盖洋葱分层、领域层纯净、应用层纯净；下面的示例拷到项目后按实际包名调整：
-
-```java
-@AnalyzeClasses(packages = "com.xxx", importOptions = ImportOption.DoNotIncludeTests.class)
-class OnionArchitectureTest {
-
-    // 依赖由外向内、适配器之间互不依赖；ensureAll 让不属于任何层的新包无法绕过检查
-    @ArchTest
-    static final ArchRule onion = onionArchitecture()
-            .domainModels("..domain.model..", "..domain.shared..").domainServices("..domain.service..")
-            .applicationServices("..application..")
-            .adapter("web", "..adapter.in.web..").adapter("ws", "..adapter.in.ws..").adapter("mq-in", "..adapter.in.mq..")
-            .adapter("job", "..adapter.in.job..")
-            .adapter("payment", "..adapter.out.payment..").adapter("persistence", "..adapter.out.persistence..")
-            .adapter("mq-out", "..adapter.out.mq..")
-            .ensureAllClassesAreContainedInArchitectureIgnoring("..boot..");
-
-    @ArchTest
-    static final ArchRule domainIsPure = classes().that().resideInAPackage("..domain..")
-            .should().onlyDependOnClassesThat().resideInAnyPackage("..domain..", "java..", "lombok..");
-
-    // java.. 白名单会放进 IO 包，单独禁止（应用层同理）
-    @ArchTest
-    static final ArchRule domainHasNoIo = noClasses().that().resideInAPackage("..domain..")
-            .should().dependOnClassesThat().resideInAnyPackage("java.sql..", "java.net..", "java.nio.file..");
-
-    @ArchTest
-    static final ArchRule domainDoesNotReadClock = noClasses().that().resideInAPackage("..domain..")
-            .should().callMethod(System.class, "currentTimeMillis")
-            .orShould().callMethod(Instant.class, "now")
-            .orShould().callMethod(LocalDateTime.class, "now");
-
-    @ArchTest
-    static final ArchRule applicationIsPure = classes().that().resideInAPackage("..application..")
-            .should().onlyDependOnClassesThat().resideInAnyPackage("..domain..", "..application..", "java..", "lombok..",
-                    "org.springframework.stereotype..", "org.springframework.transaction.annotation..");
-
-    @ArchTest
-    static final ArchRule applicationHasNoIo = noClasses().that().resideInAPackage("..application..")
-            .should().dependOnClassesThat().resideInAnyPackage("java.sql..", "java.net..", "java.nio.file..");
-
-    @ArchTest
-    static final ArchRule transactionalOnlyInApplication = noClasses().that().resideOutsideOfPackage("..application..")
-            .should().beAnnotatedWith(Transactional.class)
-            .orShould().containAnyMethodsThat(annotatedWith(Transactional.class));
-
-    @ArchTest static final ArchRule noFieldInjection = GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION;
-    @ArchTest static final ArchRule noStandardStreams = GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
-    @ArchTest static final ArchRule noJul = GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING;
-    @ArchTest static final ArchRule noOldDateTime = GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED;
-}
-```
-
-- 以下规则 ArchUnit 拦不住，靠自查和 review：端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、队列满时的策略。
+- `mvn test`
+- 以下规则靠自查和 review：端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、队列满时的策略。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层和模块，依赖方向正确，ArchUnit 通过。
+- [ ] 代码在正确的层和模块，依赖方向符合本文件。
 - [ ] `mvn test` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、注释掉的代码、调试日志、未使用的参数。
