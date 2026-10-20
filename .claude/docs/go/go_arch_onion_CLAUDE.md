@@ -196,15 +196,3 @@ pay := application.NewPayOrderService(tx, persistence.NewOrderRepo(db), payment.
 > 记录现存不符合上述规则的代码，避免被模仿。只在本次需求本来就要改到的代码里顺带修正；超出这个范围的不动，在汇报中列出。没有则保持为空。
 
 - （无）
-
-## 附录：实时交易系统（可选）
-
-> 非交易类项目删除本节。本节规则补充正文，冲突时以本节为准。
-
-- 交易所报文、签名、限频（rate limit）、错误码只在出站适配器处理；端口按业务设计（`Submit(ctx, domain.HedgeOrder)`），禁止 `Submit(ctx, BinanceOrderRequest)`。
-- 下单使用确定性的 `clientOrderId` 作为幂等键，超时或网络错误后先按它查询订单状态再决定是否重下，禁止盲目重试。
-- 行情、订单推送必须处理重复、乱序、gap、断线重连：出现 gap 时作废本地缓存并重拉快照，不能跳过继续用；重连后必须重新订阅。
-- 背压分级：行情类 channel 满了可以丢弃并置 gap 标记；订单、回报、成交类不能丢，满了拒绝受理或熔断。
-- WS 读取循环只做解析和投递，不写数据库、不 `time.Sleep`。
-- 热路径禁止逐笔日志、`encoding/json`、`fmt.Sprintf`、反射、无界重试和不必要的堆分配。
-- 价格和数量按交易对的 tickSize/stepSize 取整，取整规则写在领域值对象中（如 `Symbol.AlignPrice(price, side)`），舍入方向由买卖方向决定，不依赖默认值。
