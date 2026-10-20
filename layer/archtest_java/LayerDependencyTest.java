@@ -20,7 +20,7 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
- * 入口层 -> service -> infra，dto/enums/utils 为公共包，config 为组装。
+ * 入口层（controller、listener、schedule）-> service -> infra，dto/enums/utils 为公共包，config、bootstrap 为组装。
  */
 class LayerDependencyTest {
 
@@ -40,8 +40,8 @@ class LayerDependencyTest {
     void layers() {
         layeredArchitecture().consideringOnlyDependenciesInLayers()
                 .ensureAllClassesAreContainedInArchitecture()
-                .layer("Assembly").definedBy(ROOT, ROOT + ".config..", ROOT + ".schedule..")
-                .layer("Entry").definedBy(ROOT + ".controller..")
+                .layer("Assembly").definedBy(ROOT, ROOT + ".config..", ROOT + ".bootstrap..")
+                .layer("Entry").definedBy(ROOT + ".controller..", ROOT + ".listener..", ROOT + ".schedule..")
                 .layer("Service").definedBy(ROOT + ".service..")
                 .layer("Infra").definedBy(ROOT + ".infra..", ROOT + ".websocket..")
                 .layer("Common").definedBy(ROOT + ".dto..", ROOT + ".enums..", ROOT + ".utils..")
@@ -121,7 +121,8 @@ class LayerDependencyTest {
     }
 
     /**
-     * service 不直接使用 Redis、Kafka、MyBatis 等中间件 API，必须通过 infra 访问。
+     * service 不直接使用 Redis、Kafka、MyBatis 等中间件 API 和 HTTP/WS 客户端，必须通过 infra 访问。
+     * 这是 deny 列表，引入新的中间件或客户端时要把它的包加进来。
      */
     @Test
     void serviceNotUseMiddleware() {
@@ -133,7 +134,15 @@ class LayerDependencyTest {
                         "org.springframework.data.redis..",
                         "org.springframework.kafka..",
                         "org.apache.kafka..",
-                        "com.baomidou..")
+                        "com.baomidou..",
+                        "org.apache.ibatis..",
+                        "org.springframework.web.client..",
+                        "org.springframework.web.reactive.function.client..",
+                        "okhttp3..",
+                        "org.apache.hc..",
+                        "org.apache.http..",
+                        "jakarta.websocket..",
+                        "org.springframework.web.socket..")
                 .check(classes);
     }
 }
