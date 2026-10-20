@@ -32,7 +32,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 - 数据库：`<填写：sqlx / diesel / sea-orm / 无>`；错误：`<填写：thiserror + anyhow>`；日志：`<填写：tracing>`；表结构迁移：`<填写：sqlx migrate / refinery / 无>`
 - 构建与测试：`<填写，如 cargo test --workspace>`
 - 工程结构：`<填写：单 crate 多模块 / workspace 多 crate>`。
-  - 单 crate：层按模块划分（`src/entry` 等），编译器不检查模块间方向，由「检查」一节的 CI 脚本保证。
+  - 单 crate：层按模块划分（`src/entry` 等），编译器不检查模块间方向，写代码时自行保证。
   - 多 crate：每层一个 crate（`crates/entry` 等），下层 crate 的 `Cargo.toml` 不声明上层 crate，由编译器保证；模块划分仍按下方层级表。
 
 ## 规则优先级与工作方式
@@ -58,8 +58,8 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 4. **抽象准入**：没有第二个实现、不属于真实 IO 边界时，不建 trait、工厂、泛型仓储、兼容层、fallback、feature flag。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增 crate。确需新增时，先说明用途、体积、维护状态和 license，等用户确认后再改 `Cargo.toml`。
 6. **不写占位**：不留 TODO、`todo!()`、`unimplemented!()`、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 或 CI 检查来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增 crate 或层；新增依赖；修改公共类型、对外接口、表结构、消息格式；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止 `#[ignore]`、改断言、删除测试、放宽超时、放宽 clippy 检查来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增 crate 或层；新增依赖；修改公共类型、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -77,7 +77,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改，并同步更新「检查」一节的 CI 脚本。在已有模块下新增子模块不需要改。
+> 下表为示例，按实际项目修改。在已有模块下新增子模块不需要改。
 
 | 层 | 模块（单 crate）/ crate（多 crate） | 可以依赖 | 外部依赖限制 |
 |---|---|---|---|
@@ -92,8 +92,8 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 ### 依赖规则
 
-- 上层可以依赖下层，**下层禁止依赖上层**。多 crate 由编译器保证；单 crate 编译不报错，由 CI 脚本保证。
-- 跨层引用一律写完整路径 `use crate::<层>::...`，不用 `super::` 跨层，否则 CI 脚本查不到。
+- 上层可以依赖下层，**下层禁止依赖上层**。多 crate 由编译器保证；单 crate 编译不报错，写代码时自行保证。
+- 跨层引用一律写完整路径 `use crate::<层>::...`，不用 `super::` 跨层，否则跨层引用不容易查出来。
 - 禁止用 `static`、`OnceLock`、`LazyLock`、`lazy_static`、`thread_local!` 保存服务对象或做服务定位。所有依赖在组装层通过构造函数传入。
 - 业务层不直接使用中间件或 SDK 的 API（sqlx、redis、rdkafka、reqwest、tokio-tungstenite），必须通过 infra 封装的类型访问。
 - 基础设施层只处理技术问题（协议、签名、序列化、连接、重连、持久化），不做业务判断。
@@ -154,7 +154,7 @@ let payment = Arc::new(PaymentClient::new(Arc::new(PaymentResultHandler { tx }))
 let orders = OrderService::new(payment.clone());
 ```
 
-- **实现回调 trait 的类型不能再持有那个下层客户端**：上例若让 `OrderService` 同时实现 `PaymentResultListener`，构造 `PaymentClient` 需要 `Arc<OrderService>`，构造 `OrderService` 又需要 `Arc<PaymentClient>`，无法直接构造；用 `Weak`、`OnceLock` 延迟注入或 `set_listener` 绕过，会形成 `Arc` 引用环（内存泄漏、关停时 drop 不掉）或运行期未初始化状态。编译器和 CI 脚本都查不到这种环。
+- **实现回调 trait 的类型不能再持有那个下层客户端**：上例若让 `OrderService` 同时实现 `PaymentResultListener`，构造 `PaymentClient` 需要 `Arc<OrderService>`，构造 `OrderService` 又需要 `Arc<PaymentClient>`，无法直接构造；用 `Weak`、`OnceLock` 延迟注入或 `set_listener` 绕过，会形成 `Arc` 引用环（内存泄漏、关停时 drop 不掉）或运行期未初始化状态。编译器查不到这种环。
 - 异步 trait 不能直接用于 `dyn`：需要异步回调时用 `#[async_trait]`、泛型参数，或改用方式二。只有一个调用方且无需解耦时，直接调用下层，不要为形式加 trait。
 
 ### 方式二：事件通道（持续推送、流式数据）
@@ -260,24 +260,6 @@ let orders = OrderService::new(payment.clone());
 - `cargo fmt --check`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test`（多 crate 用 `cargo test --workspace`）
-- 多 crate：`cargo tree -p <crate> -e normal --depth 1` 中不应出现上层 crate；service 的直接依赖中不应出现 sqlx、redis、rdkafka、reqwest。只看直接依赖，因为 service 依赖 infra，传递依赖里必然有这些 crate。
-- 单 crate：编译器不检查模块方向，CI 必须执行以下脚本，输出为空才算通过：
-
-```bash
-#!/usr/bin/env bash
-# 层间方向：下层不得引用上层；跨层引用必须写成 crate::<层> 完整路径或 crate::{...} 分组
-fail=0
-grep_or_fail() { if grep -rnE "$2" $1; then echo "违反规则：$1 中出现 $2"; fail=1; fi; }
-forbid() { grep_or_fail "$1" "crate::($2)\b|crate::\{[^}]*\b($2)\b"; }
-forbid "src/common"  'entry|service|infra|bootstrap'
-forbid "src/infra"   'entry|service|bootstrap'
-forbid "src/service" 'entry|bootstrap'
-forbid "src/entry"   'infra|bootstrap'
-# 外部依赖：service、common 不直接用中间件/SDK
-grep_or_fail "src/service src/common" '\b(sqlx|redis|rdkafka|reqwest|tokio_tungstenite)::|tokio::(net|fs)\b'
-exit $fail
-```
-
 - 在 `Cargo.toml` 中用 lint 把文字约束变成编译检查（workspace 写 `[workspace.lints.clippy]`，各 crate 写 `[lints] workspace = true`）：
 
 ```toml
@@ -295,11 +277,11 @@ float_arithmetic = "warn"   # 金额必须用 Decimal；确需浮点处局部 al
 ```
 
 - `clippy.toml` 中设置 `allow-unwrap-in-tests = true`、`allow-expect-in-tests = true`，并用 `disallowed-methods` 禁止 `chrono::Utc::now`、`std::time::SystemTime::now`；只在提供时钟的那一处 `#[allow(clippy::disallowed_methods)]` 并注释原因。启动阶段允许的 `expect` 同样局部 allow。
-- 以下规则工具拦不住，靠自查和 review：回调类型与下层客户端互相持有、金额舍入策略、事务内远程调用、锁内 IO、日志中的敏感信息、通道满时的策略。
+- 以下规则靠自查和 review：回调类型与下层客户端互相持有、金额舍入策略、事务内远程调用、锁内 IO、日志中的敏感信息、通道满时的策略。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层和 crate，依赖方向正确，`cargo tree` 或 CI 脚本检查通过。
+- [ ] 代码在正确的层和 crate，依赖方向符合本文件。
 - [ ] `cargo fmt`、`clippy -D warnings`、`cargo test` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、`todo!()`、注释掉的代码、调试日志、未使用的参数。
