@@ -11,6 +11,8 @@
 依赖只能由外向内
 ```
 
+**组装层（`boot`）可以依赖所有层**：它只做接线，是唯一同时知道所有具体实现的地方；任何层都不能反过来依赖组装层。
+
 六边形架构和整洁架构与本项目是同一条依赖规则的不同命名：六边形强调入站/出站端口对称，整洁架构强调用例输入/输出端口。**本项目统一按洋葱落法，不要引入第四种命名、分层或目录结构。**
 
 ## 本项目事实
@@ -21,7 +23,9 @@
 - Spring Boot：`<填写：2.7 / 3.x>`（3.x 用 `jakarta.*`，2.x 用 `javax.*`，不能混用）
 - 持久层：`<填写：MyBatis-Plus / MyBatis / JPA>`；日志：`<填写：SLF4J + Logback>`；表结构迁移：`<填写：Flyway / Liquibase / 无>`
 - 构建与测试：`<填写，如 mvn -q test>`
-- 模块：`<填写，如 xxx-domain、xxx-application、xxx-adapter、xxx-boot>`
+- 工程结构：`<填写：单模块多包 / 多模块>`。
+  - 单模块：层只按包划分，依赖方向由 ArchUnit 保证。
+  - 多模块：按层拆 Maven 模块（如 `xxx-domain`、`xxx-application`、`xxx-adapter`、`xxx-boot`），依赖方向由 `pom.xml` 和 ArchUnit 共同保证，模块内的包名仍按下方层级表。
 
 ## 规则优先级与工作方式
 
@@ -211,7 +215,7 @@ public class OrderController {
 - 领域异常定义在领域层，应用异常和端口异常定义在应用层；出站适配器把第三方异常转换为端口约定的异常，入站适配器统一把内层异常转换为响应（如 `@RestControllerAdvice`）。
 - 禁止空 `catch`、`catch (Exception e) { log.error(...) }` 后继续执行、`printStackTrace()`；失败必须明确采取以下一种处理：重试（有上限和退避）、死信、熔断、返回错误、停机。
 - `@Transactional` 只加在应用层的 public、非 final 方法上。同类自调用不经过 Spring 代理，事务不生效，必须拆到另一个 Bean 或改用编程式事务。
-- 受检异常默认不回滚，需要回滚时显式写 `rollbackFor = Exception.class`；传播行为显式声明。
+- 受检异常默认不回滚，需要回滚时显式写 `rollbackFor = Exception.class`；使用非默认的传播行为（如 `REQUIRES_NEW`、`NESTED`）时必须显式声明并注释原因，默认的 `REQUIRED` 不用写。
 - 事务内不做远程调用（第三方 HTTP、MQ 同步发送）；数据库与消息的一致性用 outbox 或 `afterCommit`，不做双写。
 - 适配器和组装层不开事务。
 
