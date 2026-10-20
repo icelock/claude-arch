@@ -77,13 +77,13 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 > 下表为示例，按实际项目修改。在已有包下新增子包不需要改。
 
-| 层 | 包（相对根包 `com.xxx`） | 可以被谁依赖 | 外部依赖限制 |
+| 层 | 包（相对根包 `com.xxx`） | 可以依赖 | 外部依赖限制 |
 |---|---|---|---|
-| 组装 | 根包、`config..`、`bootstrap..` | 无 | 无 |
-| entry | `controller..`、`listener..`、`schedule..` | 组装 | 不直接用 Mapper、RedisTemplate、KafkaTemplate |
-| service | `service..` | entry、组装 | 不用 Redis、Kafka、MyBatis 等中间件 API |
-| infra | `infra..`、`websocket..` | service、组装 | 无 |
-| common | `dto..`、`enums..`、`utils..` | 所有层 | 只允许 JDK 和基础工具库 |
+| 组装 | 根包、`config..`、`bootstrap..` | 所有层 | 无 |
+| entry | `controller..`、`listener..`、`schedule..` | service、common | 不直接用 Mapper、RedisTemplate、KafkaTemplate |
+| service | `service..` | infra、common | 不用 Redis、Kafka、MyBatis 等中间件 API |
+| infra | `infra..`、`websocket..` | common | 无 |
+| common | `dto..`、`enums..`、`utils..` | 无 | 只允许 JDK 和基础工具库 |
 
 - 所有类都必须属于上表某一层；根包只放 `@SpringBootApplication` 启动类，`@Configuration` 放 `config`，启动预热、生命周期管理（`ApplicationRunner`、`SmartLifecycle`）放 `bootstrap`。新增顶层包落不进上表就停下来问。
 - 包和模块之间不能有环，Spring Bean 之间也不能循环依赖。
