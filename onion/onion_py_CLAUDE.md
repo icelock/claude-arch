@@ -26,7 +26,7 @@
 - Web 框架：`<填写：FastAPI / Flask / 无>`；ORM：`<填写：SQLAlchemy 2.x / 无>`；表结构迁移：`<填写：Alembic / 无>`
 - 并发模型：`<填写：asyncio / 同步 + 线程池>`。端口 Protocol 的同步/异步与此一致，不要混用
 - 类型检查：`<填写：mypy / pyright>`；格式化与 lint：`<填写：ruff>`
-- 检查命令：`<填写，如 uv run ruff check . && uv run mypy . && uv run lint-imports && uv run pytest>`
+- 检查命令：`<填写，如 uv run ruff check . && uv run mypy . && uv run pytest>`
 
 ## 规则优先级与工作方式
 
@@ -51,8 +51,8 @@
 4. **抽象准入**：真实 IO 边界的出站端口是架构要求，必须建；一个外部能力对应一个端口，不按方法拆。除此之外，没有第二个实现时，不建 Protocol、ABC、工厂、泛型仓储、兼容层、fallback、feature flag；纯计算不建端口。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增第三方库。确需新增时，先说明用途、体积、维护状态，等用户确认后再改 `pyproject.toml`。
 6. **不写占位**：不留 TODO、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、加 skip、放宽超时、更新快照或放宽 import-linter 契约来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增包或层；新增依赖；修改公共类型、端口签名、对外接口、表结构、消息格式；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、加 skip、放宽超时、更新快照来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增包或层；新增依赖；修改公共类型、端口签名、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -70,7 +70,7 @@
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改。**与「检查」一节的 import-linter 配置一一对应**，新增包、拆分适配器时两边同时改。
+> 下表为示例，按实际项目修改。新增包、拆分适配器时同步更新本表。
 
 | 层 | 包 | 可以依赖 | 外部依赖限制 |
 |---|---|---|---|
@@ -95,7 +95,7 @@
 - 新的业务流程 → `application.services`；需要外部能力时在 `application.ports` 新增 Protocol。
 - 新的外部系统接入 → `adapter.outbound`，实现已有或新增的端口。
 - 新的触发方式 → `adapter.inbound`，只做转换和调用。
-- 新增包或适配器：先更新层级表和 import-linter 配置，再写代码。
+- 新增包或适配器：先更新层级表，再写代码。
 
 ## 端口与跨边界类型
 
@@ -261,45 +261,12 @@ async def pay(order_id: int, pay_order: PayOrder = Depends(get_pay_order)) -> No
 
 - `ruff check .` 和 `ruff format --check .`
 - `mypy .`（或 `pyright`）：公开函数和类必须有完整类型注解。
-- `lint-imports`：层间依赖、适配器独立性、内层外部库限制，函数内部的延迟 import 同样会被检查。
 - `pytest`：全量，不只跑改动目录。
-
-```toml
-# pyproject.toml
-[tool.importlinter]
-root_package = "myapp"
-include_external_packages = true
-
-[[tool.importlinter.contracts]]
-name = "洋葱依赖：只能由外向内"
-type = "layers"
-# main 是启动入口，会 import bootstrap，所以两者分成上下两层；用 | 并列会被视为互相独立，检查直接失败。
-layers = ["myapp.main", "myapp.bootstrap", "myapp.adapter", "myapp.application", "myapp.domain"]
-
-[[tool.importlinter.contracts]]
-name = "入站与出站适配器互不依赖"
-type = "independence"
-modules = ["myapp.adapter.inbound", "myapp.adapter.outbound"]
-
-[[tool.importlinter.contracts]]
-name = "出站适配器之间互不依赖"
-type = "independence"
-modules = ["myapp.adapter.outbound.payment", "myapp.adapter.outbound.db", "myapp.adapter.outbound.mq"]
-
-[[tool.importlinter.contracts]]
-name = "内层不依赖框架和 IO 库"
-type = "forbidden"
-source_modules = ["myapp.domain", "myapp.application"]
-forbidden_modules = ["pydantic", "fastapi", "starlette", "sqlalchemy", "redis", "httpx", "requests", "aiohttp",
-                     "websockets", "aiokafka", "confluent_kafka", "asyncpg", "psycopg", "pymysql", "boto3"]
-```
-
-- 内层禁用列表是 deny 列表：引入新的框架、驱动或客户端时，必须把它的顶层包名加进去。
-- 以下规则 import-linter 拦不住，靠自查和 review：内层使用标准库 IO（`open`、`socket`、`sqlite3`）、端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额构造与舍入、事务内远程调用、async 中的阻塞调用、日志中的敏感信息、队列满时的策略。
+- 以下规则靠自查和 review：内层使用标准库 IO（`open`、`socket`、`sqlite3`）、端口按业务设计而不是按外部 API 设计、应用层不写业务规则、一个事务只改一个聚合、金额构造与舍入、事务内远程调用、async 中的阻塞调用、日志中的敏感信息、队列满时的策略。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层和包，依赖方向正确，`lint-imports` 通过。
+- [ ] 代码在正确的层和包，依赖方向符合本文件。
 - [ ] `ruff`、`mypy`、`pytest` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、注释掉的代码、调试日志、未使用的参数。
