@@ -30,7 +30,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 - Web 框架：`<填写：FastAPI / Django / Flask / 无>`；ORM：`<填写：SQLAlchemy 2.x / Django ORM / 无>`；表结构迁移：`<填写：Alembic / Django migrations / 无>`
 - 并发模型：`<填写：asyncio / 同步 + 线程池>`。asyncio 项目中，业务路径上的 IO 一律用异步客户端
 - 类型检查：`<填写：mypy / pyright>`；格式化与 lint：`<填写：ruff>`
-- 检查命令：`<填写，如 uv run ruff check . && uv run mypy . && uv run lint-imports && uv run pytest>`
+- 检查命令：`<填写，如 uv run ruff check . && uv run mypy . && uv run pytest>`
 
 ## 规则优先级与工作方式
 
@@ -55,8 +55,8 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 4. **抽象准入**：没有第二个实现、不属于真实 IO 边界时，不建 Protocol、ABC、工厂、泛型仓储、兼容层、fallback、feature flag。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增第三方库。确需新增时，先说明用途、体积、维护状态，等用户确认后再改 `pyproject.toml`。
 6. **不写占位**：不留 TODO、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、加 skip、放宽超时、更新快照或放宽 import-linter 契约来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增包或层；新增依赖；修改公共类型、对外接口、表结构、消息格式；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、加 skip、放宽超时、更新快照来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增包或层；新增依赖；修改公共类型、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -74,7 +74,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改。**与「检查」一节的 import-linter 配置一一对应**，两边必须同时改。在已有包下新增子包不需要改。
+> 下表为示例，按实际项目修改。在已有包下新增子包不需要改。
 
 | 层 | 包 | 可以被谁依赖 | 外部依赖限制 |
 |---|---|---|---|
@@ -89,7 +89,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 ### 依赖规则
 
-- 上层可以依赖下层，**下层禁止 import 上层任何模块**。Python 不会阻止反向 import，必须靠 import-linter 检查。
+- 上层可以依赖下层，**下层禁止 import 上层任何模块**。Python 不会阻止反向 import，写代码时自行保证。
 - 禁止用以下方式绕过依赖规则：函数内部延迟 import 上层模块；`importlib.import_module` 动态导入；模块级全局变量或注册表保存上层对象。
 - 所有依赖在组装层通过构造函数（`__init__` 参数）传入。FastAPI 的 `Depends` 只在 entry 使用，不要渗透到 service 和 infra。服务实例由组装层在启动时挂到 `app.state` 上（如 `app.state.order_service = OrderService(...)`），entry 的依赖函数从 `request.app.state` 取出；entry 不得 import 组装层。
 - 业务层不直接使用中间件或 SDK 的 API（SQLAlchemy session、redis、aiokafka/confluent_kafka、httpx/requests、websockets），必须通过 infra 封装的类访问。
@@ -147,7 +147,7 @@ payment = PaymentClient(http, listener=handler)
 order_service = OrderService(payment)
 ```
 
-- **实现回调的对象不能再持有那个下层客户端**：上例若让 `OrderService` 同时实现 `on_payment_result`，构造 `PaymentClient` 需要 `OrderService`，构造 `OrderService` 又需要 `PaymentClient`，只能先构造一个，再用 `client.set_listener(service)` 事后回填。事后 setter 会让对象存在半初始化状态，这本身就是坏味道。包依赖是合法的，import-linter 检查不到这种装配时的环。
+- **实现回调的对象不能再持有那个下层客户端**：上例若让 `OrderService` 同时实现 `on_payment_result`，构造 `PaymentClient` 需要 `OrderService`，构造 `OrderService` 又需要 `PaymentClient`，只能先构造一个，再用 `client.set_listener(service)` 事后回填。事后 setter 会让对象存在半初始化状态，这本身就是坏味道。包依赖是合法的，但装配时会成环。
 - 只有一个方法时可用 `Callable[[PaymentResultEvent], Awaitable[None]]`。只有一个调用方且无需解耦时，直接调用下层，不要为形式加 Protocol。
 
 ### 方式二：队列（持续推送、流式数据）
@@ -249,44 +249,12 @@ order_service = OrderService(payment)
 
 - `ruff check .` 和 `ruff format --check .`
 - `mypy .`（或 `pyright`）：公开函数和类必须有完整类型注解。
-- `lint-imports`：层间依赖和外部库限制，函数内部的延迟 import 同样会被检查。
 - `pytest`：全量，不只跑改动目录。
-
-```toml
-# pyproject.toml
-[tool.importlinter]
-root_package = "myapp"
-include_external_packages = true
-
-[[tool.importlinter.contracts]]
-name = "分层依赖：下层不能 import 上层"
-type = "layers"
-# main 是启动入口，会 import bootstrap，所以两者分成上下两层；用 | 并列会被视为互相独立，检查直接失败。
-layers = ["myapp.main", "myapp.bootstrap", "myapp.entry", "myapp.service", "myapp.infra", "myapp.common"]
-
-# layers 契约允许跳层，entry 不能直接用 infra 要单独禁止。
-# 以下 forbidden 契约只限制直接 import：entry 经 service 间接用到 infra、service 经 infra 间接用到 sqlalchemy 都是合法的。
-[[tool.importlinter.contracts]]
-name = "入口不直连基础设施和存储"
-type = "forbidden"
-source_modules = ["myapp.entry"]
-forbidden_modules = ["myapp.infra", "sqlalchemy", "redis"]
-allow_indirect_imports = true
-
-[[tool.importlinter.contracts]]
-name = "业务层不直接用中间件和客户端"
-type = "forbidden"
-source_modules = ["myapp.service"]
-forbidden_modules = ["sqlalchemy", "redis", "httpx", "requests", "aiohttp", "websockets", "aiokafka", "confluent_kafka"]
-allow_indirect_imports = true
-```
-
-- 业务层的禁用列表是 deny 列表：引入新的中间件或客户端时，必须把它的顶层包名加进去。
-- 以下规则 import-linter 拦不住，靠自查和 review：common 只用标准库和基础工具库、金额构造与舍入、事务内远程调用、async 中的阻塞调用、锁内 IO、日志中的敏感信息、队列满时的策略。
+- 以下规则靠自查和 review：common 只用标准库和基础工具库、金额构造与舍入、事务内远程调用、async 中的阻塞调用、锁内 IO、日志中的敏感信息、队列满时的策略。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层和包，依赖方向正确，`lint-imports` 通过。
+- [ ] 代码在正确的层和包，依赖方向符合本文件。
 - [ ] `ruff`、`mypy`、`pytest` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、注释掉的代码、调试日志、未使用的参数。
