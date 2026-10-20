@@ -178,9 +178,3 @@ pay := application.NewPayOrderService(tx, persistence.NewOrderRepo(db), payment.
 - 内层不使用 `net` 包做 socket IO。
 - 端口按业务设计而不是按外部 API 设计；新增端口对应真实 IO 边界。
 - 应用层不写业务规则；一个事务只修改一个聚合。
-
-## 已知的历史违规
-
-> 记录现存不符合上述规则的代码，避免被模仿。只在本次需求本来就要改到的代码里顺带修正；超出这个范围的不动，在汇报中列出。没有则保持为空。
-
-- （无）

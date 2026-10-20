@@ -173,9 +173,3 @@ let orders = OrderService::new(payment.clone());
 ## 架构自查
 
 - 代码在正确的层和 crate，依赖方向符合本文件；service 不直接依赖 sqlx、redis、reqwest、tokio-tungstenite。
-
-## 已知的历史违规
-
-> 记录现存不符合上述规则的代码，避免被模仿。只在本次需求本来就要改到的代码里顺带修正；超出这个范围的不动，在汇报中列出。没有则保持为空。
-
-- （无）

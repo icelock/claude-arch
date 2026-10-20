@@ -165,9 +165,3 @@ public class PaymentResultHandler implements PaymentResultListener {
 ## 架构自查
 
 - 代码在正确的层和模块，依赖方向符合本文件；entry 不直接依赖 infra。
-
-## 已知的历史违规
-
-> 记录现存不符合上述规则的代码，避免被模仿。只在本次需求本来就要改到的代码里顺带修正；超出这个范围的不动，在汇报中列出。没有则保持为空。
-
-- （无）
