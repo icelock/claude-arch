@@ -76,13 +76,13 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 > 下表为示例，按实际项目修改。在已有包下新增子包不需要改。
 
-| 层 | 包 | 可以被谁依赖 | 外部依赖限制 |
+| 层 | 包 | 可以依赖 | 外部依赖限制 |
 |---|---|---|---|
-| 组装 | `myapp.bootstrap`、`myapp.main` | 无 | 无 |
-| entry | `myapp.entry`：`entry.api`（HTTP 路由）、`entry.consumer`（MQ 消费）、`entry.jobs`（定时任务） | 组装 | 不直接用 sqlalchemy、redis |
-| service | `myapp.service` | entry、组装 | 不直接用 sqlalchemy、redis、HTTP/WS 客户端、Kafka 客户端 |
-| infra | `myapp.infra`（如 `infra.db`、`infra.payment`、`infra.ws`） | service、组装 | 无 |
-| common | `myapp.common` | 所有层 | 只允许标准库和基础工具库 |
+| 组装 | `myapp.bootstrap`、`myapp.main` | 所有层 | 无 |
+| entry | `myapp.entry`：`entry.api`（HTTP 路由）、`entry.consumer`（MQ 消费）、`entry.jobs`（定时任务） | service、common | 不直接用 sqlalchemy、redis |
+| service | `myapp.service` | infra、common | 不直接用 sqlalchemy、redis、HTTP/WS 客户端、Kafka 客户端 |
+| infra | `myapp.infra`（如 `infra.db`、`infra.payment`、`infra.ws`） | common | 无 |
+| common | `myapp.common` | 无 | 只允许标准库和基础工具库 |
 
 - 所有模块都必须属于上表某一层；`myapp/__init__.py` 只做包声明，不放逻辑。
 - 依赖图不能有环，包括函数内部延迟 import 形成的环。
