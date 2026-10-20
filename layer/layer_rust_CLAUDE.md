@@ -5,10 +5,8 @@
 本项目采用**经典分层架构**：依赖只能自上而下单向流动，层是封闭的，不能跳层。组装层（`src/main.rs`、`src/bootstrap`）是组装根。
 
 ```
-组装 ──> entry、service、infra、common
-
-entry ──> service ──> infra ──> common
-  └──────────┴──────────────────> common
+组装 ──> entry ──> service ──> infra ──> common
+  └────────┴──────────┴──────────┴─────> common
 ```
 
 **组装层（`src/main.rs`、`src/bootstrap`）可以依赖所有层**：它只做接线，是唯一同时知道所有具体实现的地方；任何层都不能反过来依赖组装层。
