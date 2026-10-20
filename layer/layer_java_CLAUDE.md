@@ -30,8 +30,8 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 - 持久层：`<填写：MyBatis-Plus / MyBatis / JPA>`；日志：`<填写：SLF4J + Logback>`；表结构迁移：`<填写：Flyway / Liquibase / 无>`
 - 构建与测试：`<填写，如 mvn -q test>`
 - 工程结构：`<填写：单模块多包 / 多模块>`。
-  - 单模块：层只按包划分，依赖方向由 ArchUnit 保证。
-  - 多模块：每层一个 Maven 模块（如 `xxx-boot`、`xxx-entry`、`xxx-service`、`xxx-infra`、`xxx-common`），依赖方向由 `pom.xml` 和 ArchUnit 共同保证，模块内的包名仍按下方层级表。
+  - 单模块：层只按包划分。
+  - 多模块：每层一个 Maven 模块（如 `xxx-boot`、`xxx-entry`、`xxx-service`、`xxx-infra`、`xxx-common`），模块之间的依赖方向由 `pom.xml` 保证，模块内的包名仍按下方层级表。
 
 ## 规则优先级与工作方式
 
@@ -56,8 +56,8 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 4. **抽象准入**：没有第二个实现、不属于真实 IO 边界时，不建接口、抽象类、工厂、泛型 Repository、兼容层、fallback、feature flag。三行重复优于一个错误抽象。
 5. **依赖准入**：不新增第三方库或 Spring Starter。确需新增时，先说明用途、体积、维护状态，等用户确认后再改 `pom.xml`。
 6. **不写占位**：不留 TODO、mock 返回值、假数据、注释掉的代码、未使用的参数或字段。
-7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`@Disabled`、放宽超时、更新快照或放宽 ArchUnit 规则来让结果变绿。
-8. **必须停下来问**：层级归属不明；新增模块或层；新增依赖；修改公共类型、对外接口、表结构、消息格式；需要放宽架构检查；修复历史违规会超出本次需求的改动范围。
+7. **验证真实**：完成前运行「检查」一节列出的全部检查，贴出命令和真实输出。失败就说失败并继续修，禁止改断言、`@Disabled`、放宽超时、更新快照来让结果变绿。
+8. **必须停下来问**：层级归属不明；新增模块或层；新增依赖；修改公共类型、对外接口、表结构、消息格式；修复历史违规会超出本次需求的改动范围。
 
 ## 分层与依赖
 
@@ -75,7 +75,7 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 
 ### 本项目的层级
 
-> 下表为示例，按实际项目修改。**以 `LayerDependencyTest.java` 为准**，两边必须同时改。在已有包下新增子包不需要改。
+> 下表为示例，按实际项目修改。在已有包下新增子包不需要改。
 
 | 层 | 包（相对根包 `com.xxx`） | 可以被谁依赖 | 外部依赖限制 |
 |---|---|---|---|
@@ -85,12 +85,12 @@ common 是共享内核，各层依赖 common 不算跳层；除此之外，entry
 | infra | `infra..`、`websocket..` | service、组装 | 无 |
 | common | `dto..`、`enums..`、`utils..` | 所有层 | 只允许 JDK 和基础工具库 |
 
-- 所有类都必须属于上表某一层；根包只放 `@SpringBootApplication` 启动类，`@Configuration` 放 `config`，启动预热、生命周期管理（`ApplicationRunner`、`SmartLifecycle`）放 `bootstrap`。新增顶层包时先登记到 ArchUnit。
+- 所有类都必须属于上表某一层；根包只放 `@SpringBootApplication` 启动类，`@Configuration` 放 `config`，启动预热、生命周期管理（`ApplicationRunner`、`SmartLifecycle`）放 `bootstrap`。新增顶层包落不进上表就停下来问。
 - 包和模块之间不能有环，Spring Bean 之间也不能循环依赖。
 
 ### 依赖规则
 
-- 上层可以依赖下层，**下层禁止依赖上层**。Maven 多模块由 `pom.xml` 保证，单模块多包由 ArchUnit 保证。
+- 上层可以依赖下层，**下层禁止依赖上层**。Maven 多模块由 `pom.xml` 保证，单模块多包写代码时自行保证。
 - 禁止通过容器或静态状态绕过依赖规则：`ApplicationContext.getBean(...)`、`SpringContextHolder`、静态字段保存 Bean、`@PostConstruct` 里手工注册。
 - 所有依赖通过构造器注入，字段用 `final`；禁止字段注入（`@Autowired` 直接标在字段上）。
 - 业务层不直接使用中间件或 SDK 的 API（`RedisTemplate`、`KafkaTemplate`、Mapper、HTTP/WS 客户端），必须通过 infra 封装的类访问。
@@ -144,7 +144,7 @@ public class PaymentResultHandler implements PaymentResultListener {
 }
 ```
 
-- **实现回调接口的 Bean 不能再注入持有该接口的下层 Bean**：上例若让 `OrderService` 同时实现 `PaymentResultListener`，`PaymentClient` 与 `OrderService` 的构造器会互相等待，启动时报循环依赖。包依赖是合法的，ArchUnit 检查不到这种运行期的环。
+- **实现回调接口的 Bean 不能再注入持有该接口的下层 Bean**：上例若让 `OrderService` 同时实现 `PaymentResultListener`，`PaymentClient` 与 `OrderService` 的构造器会互相等待，启动时报循环依赖。包依赖是合法的，但运行期会成环。
 - 多个实现同时接收时注入 `List<PaymentResultListener>`，逐个调用。只有一个调用方且无需解耦时，直接调用下层，不要为形式加接口。
 
 ### 方式二：事件或队列（持续推送、流式数据）
@@ -244,47 +244,12 @@ public class PaymentResultHandler implements PaymentResultListener {
 
 ### 检查
 
-- `mvn test`：单元测试 + ArchUnit。
-- `mvn dependency:tree -pl <下层模块>`：输出中不应出现上层模块。
-- ArchUnit 配置见 `LayerDependencyTest.java`，它是层级表的事实来源，包含：
-  - `layers`：分层依赖 + `ensureAllClassesAreContainedInArchitecture()`。不属于任何层的类会被检查出来，避免新包绕过规则。
-  - `noPackageCyclesAtEachLevel`：按包深度逐层检查循环依赖。子包之间无环，不代表父包之间无环。
-  - `noGetBean`：禁止通过容器取 Bean。
-  - `serviceNotUseMiddleware`：service 不用中间件、持久层和 HTTP/WS 客户端 API。这是 deny 列表，引入新中间件或客户端时必须把它的包加进去。
-- 建议在同一测试类中再加以下规则，把文字约束变成机器检查：
-
-```java
-@Test
-void generalCodingRules() {
-    GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION.check(classes);
-    GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS.check(classes);   // System.out、printStackTrace
-    GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING.check(classes);
-    GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED.check(classes); // Date、Calendar、SimpleDateFormat
-}
-
-@Test
-void serviceDoesNotReadClock() {
-    noClasses().that().resideInAPackage(ROOT + ".service..")
-            .should().callMethod(System.class, "currentTimeMillis")
-            .orShould().callMethod(Instant.class, "now")
-            .orShould().callMethod(LocalDateTime.class, "now")
-            .check(classes);
-}
-
-@Test
-void transactionalOnlyInService() {
-    noClasses().that().resideOutsideOfPackage(ROOT + ".service..")
-            .should().beAnnotatedWith(Transactional.class)
-            .orShould().containAnyMethodsThat(annotatedWith(Transactional.class))
-            .check(classes);
-}
-```
-
-- 以下规则 ArchUnit 拦不住，靠自查和 review：金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、队列满时的策略。
+- `mvn test`
+- 以下规则靠自查和 review：金额构造与舍入、事务内远程调用、锁内 IO、日志中的敏感信息、队列满时的策略。
 
 ### 完成定义（DoD）
 
-- [ ] 代码在正确的层和模块，依赖方向正确，ArchUnit 通过。
+- [ ] 代码在正确的层和模块，依赖方向符合本文件。
 - [ ] `mvn test` 全部通过，并贴出真实输出。
 - [ ] 新增业务分支有单元测试，覆盖失败路径；修 bug 有复现测试。
 - [ ] 没有 TODO、注释掉的代码、调试日志、未使用的参数。
